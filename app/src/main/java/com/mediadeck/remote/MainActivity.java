@@ -30,7 +30,6 @@ import android.widget.EditText;
 import android.widget.GridLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -84,12 +83,9 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy(){io.shutdownNow();thumbnails.shutdownNow();super.onDestroy();}
 
     private void build(){
-        ScrollView scroll=new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(BG);
-        scroll.setClipToPadding(false);
         LinearLayout root=new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(BG);
         final int side=dp(16),top=dp(10),bottom=dp(14);
         root.setPadding(side,top,side,bottom);
         root.setOnApplyWindowInsetsListener((v,insets)->{
@@ -99,13 +95,12 @@ public final class MainActivity extends Activity {
             v.setPadding(side,top+insetTop,side,bottom+insetBottom);
             return insets;
         });
-        scroll.addView(root,new ScrollView.LayoutParams(-1,-2));
 
         LinearLayout topBar=new LinearLayout(this);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
         TextView brand=text("MEDIADECK",20,INK,true);
         brand.setLetterSpacing(.16f);
-        topBar.addView(brand,new LinearLayout.LayoutParams(0,dp(46),1));
+        topBar.addView(brand,new LinearLayout.LayoutParams(0,dp(42),1));
         Button settings=button("PC SETTINGS");
         settings.setTextSize(12);
         settings.setOnClickListener(v->openPcSettings());
@@ -113,12 +108,12 @@ public final class MainActivity extends Activity {
         root.addView(topBar);
 
         status=text("CONNECTING TO PC...",14,MUTED,true);
-        status.setPadding(dp(3),dp(2),0,dp(8));
+        status.setPadding(dp(3),dp(2),0,dp(4));
         root.addView(status);
 
         LinearLayout card=new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(14),dp(14),dp(14),dp(15));
+        card.setPadding(dp(14),dp(9),dp(14),dp(9));
         card.setBackground(round(CARD,22));
         artwork=new ImageView(this);
         artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -133,20 +128,20 @@ public final class MainActivity extends Activity {
                 return true;
             }
         });
-        int artHeight=Math.min(dp(120),(int)(getResources().getDisplayMetrics().heightPixels*.145f));
+        int artHeight=Math.min(dp(100),(int)(getResources().getDisplayMetrics().heightPixels*.12f));
         card.addView(artwork,new LinearLayout.LayoutParams(-1,artHeight));
 
         source=text("PC MEDIA",10,PURPLE,true);
         source.setLetterSpacing(.09f);
         source.setSingleLine(true);
-        source.setPadding(0,dp(12),0,dp(4));
+        source.setPadding(0,dp(7),0,dp(2));
         card.addView(source);
         title=text("Waiting for PC media",22,INK,true);
         title.setMaxLines(2);
         card.addView(title);
         artist=text("Start YouTube Music or another player on the PC",14,MUTED,false);
         artist.setMaxLines(1);
-        artist.setPadding(0,dp(3),0,dp(7));
+        artist.setPadding(0,dp(1),0,dp(4));
         card.addView(artist);
 
         timeline=new SeekBar(this);
@@ -158,14 +153,14 @@ public final class MainActivity extends Activity {
             public void onStartTrackingTouch(SeekBar bar){userSeeking=true;}
             public void onStopTrackingTouch(SeekBar bar){userSeeking=false;seekTo(durationMs*bar.getProgress()/1000);}
         });
-        card.addView(timeline,new LinearLayout.LayoutParams(-1,dp(30)));
+        card.addView(timeline,new LinearLayout.LayoutParams(-1,dp(26)));
         LinearLayout times=new LinearLayout(this);
         elapsed=text("0:00",11,MUTED,false);
         remaining=text("-0:00",11,MUTED,false);
         times.addView(elapsed,new LinearLayout.LayoutParams(0,-2,1));
         remaining.setGravity(Gravity.END);
         times.addView(remaining,new LinearLayout.LayoutParams(0,-2,1));
-        times.setPadding(dp(5),0,dp(5),dp(8));
+        times.setPadding(dp(5),0,dp(5),dp(4));
         card.addView(times);
 
         LinearLayout transport=new LinearLayout(this);
@@ -180,14 +175,14 @@ public final class MainActivity extends Activity {
         next=largeAction("NEXT  >","next",14);
         next.setOnClickListener(v->{if(altHeld)sendKeyCommand("arrowright");else control("next");});
         addWeighted(transport,next);
-        card.addView(transport,new LinearLayout.LayoutParams(-1,dp(62)));
+        card.addView(transport,new LinearLayout.LayoutParams(-1,dp(60)));
 
         LinearLayout seekRow=new LinearLayout(this);
         seekRow.setGravity(Gravity.CENTER);
         seekRow.setPadding(0,dp(5),0,0);
         addWeighted(seekRow,largeAction("-10 SEC","back10",12));
         addWeighted(seekRow,largeAction("+10 SEC","forward10",12));
-        card.addView(seekRow,new LinearLayout.LayoutParams(-1,dp(43)));
+        card.addView(seekRow,new LinearLayout.LayoutParams(-1,dp(40)));
 
         LinearLayout volumeRow=new LinearLayout(this);
         volumeRow.setGravity(Gravity.CENTER);
@@ -195,7 +190,7 @@ public final class MainActivity extends Activity {
         addWeighted(volumeRow,largeAction("MUTE","mute",13));
         addWeighted(volumeRow,largeAction("VOL  -","volumedown",13));
         addWeighted(volumeRow,largeAction("VOL  +","volumeup",13));
-        card.addView(volumeRow,new LinearLayout.LayoutParams(-1,dp(53)));
+        card.addView(volumeRow,new LinearLayout.LayoutParams(-1,dp(50)));
 
         LinearLayout modeRow=new LinearLayout(this);
         modeRow.setGravity(Gravity.CENTER);
@@ -207,7 +202,7 @@ public final class MainActivity extends Activity {
         Button stop=largeAction("STOP","stop",13);
         stop.setTextColor(Color.rgb(254,202,202));
         addWeighted(modeRow,stop);
-        card.addView(modeRow,new LinearLayout.LayoutParams(-1,dp(51)));
+        card.addView(modeRow,new LinearLayout.LayoutParams(-1,dp(50)));
 
         Button moveScreen=largeAction("MOVE MEDIA TO NEXT SCREEN  >","movescreen",13);
         moveScreen.setTextColor(Color.BLACK);
@@ -215,7 +210,7 @@ public final class MainActivity extends Activity {
         moveScreen.setContentDescription("Move the selected PC media window to the next monitor");
         moveScreen.setOnClickListener(v->moveScreen());
         LinearLayout.LayoutParams moveLp=new LinearLayout.LayoutParams(-1,dp(46));
-        moveLp.setMargins(dp(3),dp(8),dp(3),0);
+        moveLp.setMargins(dp(3),dp(5),dp(3),0);
         card.addView(moveScreen,moveLp);
 
         altTab=largeAction("HOLD ALT + TAB  /  TAP PREV OR NEXT","alttab",13);
@@ -227,7 +222,7 @@ public final class MainActivity extends Activity {
             return true;
         });
         LinearLayout.LayoutParams altLp=new LinearLayout.LayoutParams(-1,dp(52));
-        altLp.setMargins(dp(3),dp(8),dp(3),0);
+        altLp.setMargins(dp(3),dp(5),dp(3),0);
         card.addView(altTab,altLp);
 
         SwipeReplayView replay=new SwipeReplayView(()->{
@@ -235,10 +230,10 @@ public final class MainActivity extends Activity {
             Toast.makeText(this,"Instant Replay shortcut sent to PC",Toast.LENGTH_SHORT).show();
         });
         LinearLayout.LayoutParams replayLp=new LinearLayout.LayoutParams(-1,dp(56));
-        replayLp.setMargins(dp(3),dp(8),dp(3),0);
+        replayLp.setMargins(dp(3),dp(5),dp(3),0);
         card.addView(replay,replayLp);
         root.addView(card);
-        setContentView(scroll);
+        setContentView(root);
         root.requestApplyInsets();
     }
 
