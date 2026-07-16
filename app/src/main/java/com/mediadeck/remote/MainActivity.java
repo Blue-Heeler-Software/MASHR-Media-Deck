@@ -133,7 +133,7 @@ public final class MainActivity extends Activity {
                 return true;
             }
         });
-        int artHeight=Math.min(dp(150),(int)(getResources().getDisplayMetrics().heightPixels*.18f));
+        int artHeight=Math.min(dp(120),(int)(getResources().getDisplayMetrics().heightPixels*.145f));
         card.addView(artwork,new LinearLayout.LayoutParams(-1,artHeight));
 
         source=text("PC MEDIA",10,PURPLE,true);
