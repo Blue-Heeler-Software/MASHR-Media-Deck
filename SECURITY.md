@@ -14,6 +14,8 @@ In the recommended `PairedPhone` mode, the companion binds only to loopback and 
 
 Browser endpoints additionally require loopback. All inputs are allowlisted or length-limited, and video playback accepts only an ID from the companion's current nine-item recommendation set. A source-IP restriction is defense in depth rather than device identity: IP spoofing is possible, so HMAC pairing remains mandatory.
 
+The monitor-switch command accepts no process ID, window handle, coordinates, or executable name from the phone. The companion derives an allowlisted player process from the authenticated Windows media session, requires an unambiguous top-level media window, and moves it without activation or Z-order changes.
+
 ## Remaining limitation
 
 The LAN transport is HTTP rather than TLS. HMAC prevents an observer from forging or replaying control requests after pairing, but it does not hide media titles, artwork, or response contents. An attacker who can actively sniff the exact one-time pairing exchange could also capture the returned device key.

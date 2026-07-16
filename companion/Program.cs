@@ -175,7 +175,7 @@ app.MapGet("/api/now", async () =>
     var playback = session.GetPlaybackInfo();
     var timeline = session.GetTimelineProperties();
     var duration = Math.Max(0, (timeline.EndTime - timeline.StartTime).Ticks / TimeSpan.TicksPerMillisecond);
-    var position = Math.Max(0, (timeline.Position - timeline.StartTime).Ticks / TimeSpan.TicksPerMillisecond);
+    var position = TimelineClock.PositionMs(playback, timeline);
     return Results.Json(new
     {
         title = media.Title,
@@ -252,6 +252,20 @@ app.MapPost("/api/control/{command}", async (string command) =>
         return Results.Ok();
     }
     var session = await Session();
+    if (command == "movescreen")
+    {
+        WindowMoveResult move;
+        if (preferVlc && VlcProvider.TryInfo(out var vlc)) move = WindowMover.MoveToNext("VLC.PC", vlc.Title);
+        else if (session is not null)
+        {
+            var media = await session.TryGetMediaPropertiesAsync();
+            move = WindowMover.MoveToNext(session.SourceAppUserModelId, media.Title);
+        }
+        else return Results.NotFound(new { error = "No selected media window is available." });
+        return move.Success
+            ? Results.Json(new { display = move.Display, monitor = move.Monitor, monitorCount = move.MonitorCount })
+            : Results.Json(new { error = move.Error }, statusCode: StatusCodes.Status409Conflict);
+    }
     if (preferVlc) return VlcProvider.Control(command) ? Results.Ok() : Results.BadRequest();
     if (session is null) return Results.NotFound();
     var playback = session.GetPlaybackInfo();
@@ -263,8 +277,8 @@ app.MapPost("/api/control/{command}", async (string command) =>
         "stop" => await session.TryStopAsync(),
         "next" => await session.TrySkipNextAsync(),
         "previous" => await session.TrySkipPreviousAsync(),
-        "back10" => await session.TryChangePlaybackPositionAsync(Math.Max(timeline.MinSeekTime.Ticks, timeline.Position.Ticks - TimeSpan.FromSeconds(10).Ticks)),
-        "forward10" => await session.TryChangePlaybackPositionAsync(Math.Min(timeline.MaxSeekTime.Ticks, timeline.Position.Ticks + TimeSpan.FromSeconds(10).Ticks)),
+        "back10" => await session.TryChangePlaybackPositionAsync(Math.Max(timeline.MinSeekTime.Ticks, TimelineClock.PositionTicks(playback, timeline) - TimeSpan.FromSeconds(10).Ticks)),
+        "forward10" => await session.TryChangePlaybackPositionAsync(Math.Min(timeline.MaxSeekTime.Ticks, TimelineClock.PositionTicks(playback, timeline) + TimeSpan.FromSeconds(10).Ticks)),
         "shuffle" => await session.TryChangeShuffleActiveAsync(!(playback.IsShuffleActive ?? false)),
         "repeat" => await session.TryChangeAutoRepeatModeAsync((playback.AutoRepeatMode ?? MediaPlaybackAutoRepeatMode.None) switch { MediaPlaybackAutoRepeatMode.None => MediaPlaybackAutoRepeatMode.Track, MediaPlaybackAutoRepeatMode.Track => MediaPlaybackAutoRepeatMode.List, _ => MediaPlaybackAutoRepeatMode.None }),
         _ => false
@@ -630,6 +644,101 @@ static class MediaKeys
     public static void EndAltTab() { lock (AltGate) ReleaseAlt(); }
     private static void ArmAltTimeout() { altTimeout?.Cancel(); var token = (altTimeout = new CancellationTokenSource()).Token; _ = Task.Delay(TimeSpan.FromSeconds(10), token).ContinueWith(_ => { if (!token.IsCancellationRequested) lock (AltGate) ReleaseAlt(); }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default); }
     private static void ReleaseAlt() { altTimeout?.Cancel(); altTimeout = null; if (altHeld) { keybd_event(0x12, 0, 2, UIntPtr.Zero); altHeld = false; } }
+}
+
+static class TimelineClock
+{
+    public static long PositionMs(GlobalSystemMediaTransportControlsSessionPlaybackInfo playback, GlobalSystemMediaTransportControlsSessionTimelineProperties timeline) =>
+        Math.Max(0, (PositionTicks(playback, timeline) - timeline.StartTime.Ticks) / TimeSpan.TicksPerMillisecond);
+
+    public static long PositionTicks(GlobalSystemMediaTransportControlsSessionPlaybackInfo playback, GlobalSystemMediaTransportControlsSessionTimelineProperties timeline)
+    {
+        var position = timeline.Position.Ticks;
+        if (playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+        {
+            var elapsed = DateTimeOffset.UtcNow - timeline.LastUpdatedTime;
+            var timelineSpan = timeline.MaxSeekTime - timeline.MinSeekTime;
+            var maximumAge = timelineSpan > TimeSpan.Zero ? timelineSpan + TimeSpan.FromMinutes(5) : TimeSpan.FromDays(1);
+            if (elapsed > TimeSpan.Zero && elapsed <= maximumAge)
+            {
+                var rate = playback.PlaybackRate is > 0 ? playback.PlaybackRate.Value : 1.0;
+                var estimate = position + elapsed.Ticks * rate;
+                position = estimate >= long.MaxValue ? long.MaxValue : estimate <= long.MinValue ? long.MinValue : (long)estimate;
+            }
+        }
+        return Math.Clamp(position, timeline.MinSeekTime.Ticks, timeline.MaxSeekTime.Ticks);
+    }
+}
+
+sealed record WindowMoveResult(bool Success, string Display, int Monitor, int MonitorCount, string Error)
+{
+    public static WindowMoveResult Failed(string error) => new(false, "", 0, 0, error);
+}
+
+static class WindowMover
+{
+    private const uint SwpNoZOrder = 0x0004, SwpNoActivate = 0x0010, SwpNoOwnerZOrder = 0x0200, SwpAsyncWindowPos = 0x4000;
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out NativeRect rect);
+    [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsZoomed(IntPtr window);
+    [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
+
+    public static WindowMoveResult MoveToNext(string source, string mediaTitle)
+    {
+        var processName = ProcessName(source);
+        if (processName is null) return WindowMoveResult.Failed("This media player does not support screen switching yet.");
+        var candidates = Process.GetProcessesByName(processName)
+            .Select(process => { try { process.Refresh(); return (Process: process, Window: process.MainWindowHandle, Title: process.MainWindowTitle); } catch { return (Process: process, Window: IntPtr.Zero, Title: ""); } })
+            .Where(item => item.Window != IntPtr.Zero)
+            .ToArray();
+        if (candidates.Length == 0) return WindowMoveResult.Failed("The selected media window is not open.");
+
+        var matches = candidates.Where(item => !string.IsNullOrWhiteSpace(mediaTitle) && item.Title.Contains(mediaTitle, StringComparison.OrdinalIgnoreCase)).ToArray();
+        var selected = matches.Length == 1 ? matches[0] : candidates.Length == 1 ? candidates[0] : default;
+        if (selected.Window == IntPtr.Zero) return WindowMoveResult.Failed("More than one matching media window is open; switch to the intended tab once and try again.");
+        if (IsIconic(selected.Window)) return WindowMoveResult.Failed("Restore the media window before moving it to another screen.");
+        if (!GetWindowRect(selected.Window, out var native)) return WindowMoveResult.Failed("Windows could not read the media window position.");
+
+        var screens = System.Windows.Forms.Screen.AllScreens.OrderBy(screen => screen.Bounds.Left).ThenBy(screen => screen.Bounds.Top).ToArray();
+        if (screens.Length < 2) return WindowMoveResult.Failed("Only one active screen is available.");
+        var current = System.Windows.Forms.Screen.FromHandle(selected.Window);
+        var currentIndex = Array.FindIndex(screens, screen => screen.DeviceName.Equals(current.DeviceName, StringComparison.OrdinalIgnoreCase));
+        if (currentIndex < 0) return WindowMoveResult.Failed("Windows could not identify the current screen.");
+        var targetIndex = (currentIndex + 1) % screens.Length;
+        var target = screens[targetIndex];
+        var windowRect = Rectangle.FromLTRB(native.Left, native.Top, native.Right, native.Bottom);
+        var fillsScreen = NearlyEquals(windowRect, current.Bounds);
+        var destination = fillsScreen ? target.Bounds : IsZoomed(selected.Window) ? target.WorkingArea : Translate(windowRect, current.WorkingArea, target.WorkingArea);
+        var moved = SetWindowPos(selected.Window, IntPtr.Zero, destination.Left, destination.Top, destination.Width, destination.Height, SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder | SwpAsyncWindowPos);
+        if (!moved) return WindowMoveResult.Failed("Windows refused to move the media window.");
+        var label = target.Primary ? $"PRIMARY / {target.Bounds.Width}x{target.Bounds.Height}" : $"{target.DeviceName.Replace("\\\\.\\", "")} / {target.Bounds.Width}x{target.Bounds.Height}";
+        return new(true, label, targetIndex + 1, screens.Length, "");
+    }
+
+    private static Rectangle Translate(Rectangle window, Rectangle current, Rectangle target)
+    {
+        var width = Math.Min(window.Width, target.Width);
+        var height = Math.Min(window.Height, target.Height);
+        var currentRangeX = Math.Max(1, current.Width - window.Width);
+        var currentRangeY = Math.Max(1, current.Height - window.Height);
+        var ratioX = Math.Clamp((double)(window.Left - current.Left) / currentRangeX, 0, 1);
+        var ratioY = Math.Clamp((double)(window.Top - current.Top) / currentRangeY, 0, 1);
+        var left = target.Left + (int)Math.Round(ratioX * Math.Max(0, target.Width - width));
+        var top = target.Top + (int)Math.Round(ratioY * Math.Max(0, target.Height - height));
+        return new(left, top, width, height);
+    }
+
+    private static bool NearlyEquals(Rectangle left, Rectangle right) => Math.Abs(left.Left - right.Left) <= 3 && Math.Abs(left.Top - right.Top) <= 3 && Math.Abs(left.Width - right.Width) <= 6 && Math.Abs(left.Height - right.Height) <= 6;
+    private static string? ProcessName(string source)
+    {
+        if (source.Contains("Brave", StringComparison.OrdinalIgnoreCase)) return "brave";
+        if (source.Contains("Chrome", StringComparison.OrdinalIgnoreCase)) return "chrome";
+        if (source.Contains("Edge", StringComparison.OrdinalIgnoreCase)) return "msedge";
+        if (source.Contains("VLC", StringComparison.OrdinalIgnoreCase)) return "vlc";
+        if (source.Contains("Spotify", StringComparison.OrdinalIgnoreCase)) return "Spotify";
+        return null;
+    }
 }
 
 static class ForegroundApp

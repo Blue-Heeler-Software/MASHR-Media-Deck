@@ -184,10 +184,10 @@ public final class MainActivity extends Activity {
 
         LinearLayout seekRow=new LinearLayout(this);
         seekRow.setGravity(Gravity.CENTER);
-        seekRow.setPadding(0,dp(7),0,0);
-        addWeighted(seekRow,largeAction("BACK 10 SEC","back10",14));
-        addWeighted(seekRow,largeAction("FWD 10 SEC","forward10",14));
-        card.addView(seekRow,new LinearLayout.LayoutParams(-1,dp(55)));
+        seekRow.setPadding(0,dp(5),0,0);
+        addWeighted(seekRow,largeAction("-10 SEC","back10",12));
+        addWeighted(seekRow,largeAction("+10 SEC","forward10",12));
+        card.addView(seekRow,new LinearLayout.LayoutParams(-1,dp(43)));
 
         LinearLayout volumeRow=new LinearLayout(this);
         volumeRow.setGravity(Gravity.CENTER);
@@ -208,6 +208,15 @@ public final class MainActivity extends Activity {
         stop.setTextColor(Color.rgb(254,202,202));
         addWeighted(modeRow,stop);
         card.addView(modeRow,new LinearLayout.LayoutParams(-1,dp(51)));
+
+        Button moveScreen=largeAction("MOVE MEDIA TO NEXT SCREEN  >","movescreen",13);
+        moveScreen.setTextColor(Color.BLACK);
+        moveScreen.setBackground(round(Color.rgb(125,211,252),20));
+        moveScreen.setContentDescription("Move the selected PC media window to the next monitor");
+        moveScreen.setOnClickListener(v->moveScreen());
+        LinearLayout.LayoutParams moveLp=new LinearLayout.LayoutParams(-1,dp(46));
+        moveLp.setMargins(dp(3),dp(8),dp(3),0);
+        card.addView(moveScreen,moveLp);
 
         altTab=largeAction("HOLD ALT + TAB  /  TAP PREV OR NEXT","alttab",13);
         altTab.setTextColor(Color.BLACK);
@@ -404,6 +413,7 @@ public final class MainActivity extends Activity {
     }
 
     private void control(String command){io.execute(()->{try{post("/api/control/"+command);}catch(Exception ignored){}ui.postDelayed(()->refresh(false),180);});}
+    private void moveScreen(){io.execute(()->{try{JSONObject moved=new JSONObject(post("/api/control/movescreen"));String display=moved.optString("display","next screen");ui.post(()->Toast.makeText(this,"Media moved to "+display,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,"Could not move media: "+safeMessage(error),Toast.LENGTH_LONG).show());}});}
     private void sendKeyCommand(String command){io.execute(()->{try{post("/api/control/"+command);}catch(Exception ignored){}});}
     private void beginAltGesture(){if(altHeld)return;altHeld=true;altTab.setText("ALT HELD  /  CHOOSE A WINDOW");altTab.setBackground(round(Color.rgb(248,113,113),20));previous.setText("<  WINDOW");next.setText("WINDOW  >");sendKeyCommand("altdown");}
     private void endAltGesture(){if(!altHeld)return;altHeld=false;sendKeyCommand("altup");altTab.setText("HOLD ALT + TAB  /  TAP PREV OR NEXT");altTab.setBackground(round(Color.rgb(251,191,36),20));previous.setText("<  PREV");next.setText("NEXT  >");}
@@ -475,10 +485,10 @@ public final class MainActivity extends Activity {
         try{return readResponse(connection);}finally{connection.disconnect();}
     }
 
-    private void post(String path)throws Exception{
+    private String post(String path)throws Exception{
         HttpURLConnection connection=openConnection(path,"POST",true);
         connection.setDoOutput(true);
-        try{connection.getOutputStream().close();readResponse(connection);}finally{connection.disconnect();}
+        try{connection.getOutputStream().close();return readResponse(connection);}finally{connection.disconnect();}
     }
 
     private HttpURLConnection openConnection(String path,String method,boolean authenticated)throws Exception{
