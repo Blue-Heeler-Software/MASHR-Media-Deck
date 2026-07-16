@@ -15,7 +15,9 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Base64;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
@@ -65,8 +67,8 @@ public final class MainActivity extends Activity {
     private Button previous,play,next,shuffle,repeat,altTab;
     private SeekBar timeline;
     private String base="",deviceKey="",lastTrack="";
-    private boolean running,requestPending,userSeeking,altHeld,youtubeAvailable;
-    private long durationMs;
+    private boolean running,requestPending,userSeeking,altHeld,youtubeAvailable,artworkPending,artworkLoaded;
+    private long durationMs,lastArtworkAttemptMs;
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
@@ -263,7 +265,8 @@ public final class MainActivity extends Activity {
         String newTitle=data.optString("title","Nothing playing"),newArtist=data.optString("artist","Start media on your PC");
         boolean playing=data.optBoolean("playing");
         youtubeAvailable=data.optBoolean("youtubeAvailable",false);
-        String sourceLabel=friendlySource(data.optString("source","PC MEDIA"));
+        String sourceId=data.optString("source","PC MEDIA");
+        String sourceLabel=friendlySource(sourceId);
         source.setText(sourceLabel+(youtubeAvailable?"  /  SWIPE UP FOR PICKS":""));
         title.setText(newTitle);
         artist.setText(newArtist);
@@ -280,8 +283,12 @@ public final class MainActivity extends Activity {
         repeat.setText(repeatMode.equals("track")?"REPEAT 1":repeatMode.equals("list")?"REPEAT ALL":"REPEAT");
         status.setText("PC CONNECTED  /  SIGNED");
         status.setTextColor(PURPLE);
-        String key=newTitle+'\n'+newArtist;
-        if(!key.equals(lastTrack)){lastTrack=key;loadArtwork();}
+        String key=sourceId+'\n'+newTitle+'\n'+newArtist;
+        long now=SystemClock.elapsedRealtime();
+        boolean trackChanged=!key.equals(lastTrack);
+        if(trackChanged){lastTrack=key;artworkLoaded=false;lastArtworkAttemptMs=0;artwork.setImageDrawable(null);}
+        long retryDelay=artworkLoaded?300_000L:10_000L;
+        if(!artworkPending&&(trackChanged||now-lastArtworkAttemptMs>=retryDelay)){lastArtworkAttemptMs=now;loadArtwork();}
         schedule();
     }
 
@@ -290,6 +297,7 @@ public final class MainActivity extends Activity {
     private void schedule(){if(running){ui.removeCallbacks(poll);ui.postDelayed(poll,2500);}}
 
     private void loadArtwork(){
+        artworkPending=true;
         io.execute(()->{
             HttpURLConnection connection=null;
             try{
@@ -297,8 +305,14 @@ public final class MainActivity extends Activity {
                 connection=openConnection(path,"GET",true);
                 int code=connection.getResponseCode();
                 if(code==401)throw new IOException("HTTP 401");
-                if(code>=200&&code<300){Bitmap bitmap=BitmapFactory.decodeStream(connection.getInputStream());if(bitmap!=null)ui.post(()->artwork.setImageBitmap(bitmap));}
-            }catch(Exception ignored){}finally{if(connection!=null)connection.disconnect();}
+                if(code>=200&&code<300){
+                    Bitmap bitmap=BitmapFactory.decodeStream(connection.getInputStream());
+                    if(bitmap!=null){Log.i("MediaDeck","Artwork loaded "+bitmap.getWidth()+"x"+bitmap.getHeight());ui.post(()->{artworkPending=false;artworkLoaded=true;if(!isFinishing())artwork.setImageBitmap(bitmap);});return;}
+                }
+                Log.w("MediaDeck","Artwork request returned HTTP "+code);
+            }catch(Exception error){Log.w("MediaDeck","Artwork load failed",error);}
+            finally{if(connection!=null)connection.disconnect();}
+            ui.post(()->{artworkPending=false;artworkLoaded=false;});
         });
     }
 
