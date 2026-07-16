@@ -2,7 +2,7 @@
 
 MediaDeck is a second-screen Android remote for PC gamers. It keeps the game focused while the phone controls the active Windows media session, shows its artwork and metadata, switches Alt+Tab windows, and triggers NVIDIA Instant Replay.
 
-The remote has large transport, seek, volume, shuffle/repeat, Alt+Tab, and guarded swipe-to-replay controls. When a normal YouTube watch page is active, swiping up on the artwork opens a tappable 3x3 grid of the recommendations already shown in that YouTube tab.
+The remote has large transport, seek, volume, shuffle/repeat, monitor-switching, Alt+Tab, and guarded swipe-to-replay controls. When a normal YouTube watch page is active, swiping up on the artwork opens a tappable 3x3 grid of the recommendations already shown in that YouTube tab.
 
 ## Security model
 
