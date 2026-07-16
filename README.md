@@ -11,12 +11,12 @@ The phone needs no media permissions, Google login, or YouTube account access. I
 - Every media/control request is authenticated with HMAC-SHA256.
 - Each request has a 30-second clock window and one-use nonce, so captured requests cannot simply be replayed.
 - Pairing is one-time and limited to five attempts per ten minutes. Resetting phone pairing rotates the 256-bit device key.
-- The server rejects traffic that is not from loopback or a private/link-local network address.
+- The server binds only to loopback plus one directly connected PC address; it can allow either one paired-phone IP or the exact connected subnet.
 - The YouTube browser bridge is loopback-only and cannot be reached from another LAN device.
 - Request size, header time, connection lifetime, and request rate are bounded.
 - The companion exposes fixed media actions only; there is no shell, command text, file upload, or arbitrary URL endpoint.
 
-Do not forward TCP `43821` or UDP `43822` on the router, and allow the companion only on Windows **Private** firewall profiles. The transport is authenticated but is not TLS-encrypted; see [SECURITY.md](SECURITY.md) for the remaining LAN-sniffing caveat.
+Do not forward TCP `43821` or UDP `43822` on the router. The transport is authenticated but is not TLS-encrypted; see [SECURITY.md](SECURITY.md) for the remaining LAN-sniffing caveat.
 
 ## Build and run
 
@@ -27,7 +27,13 @@ dotnet build companion/MediaDeck.Companion.csproj -c Debug
 ./gradlew.bat :app:assembleDebug
 ```
 
-Before enabling LAN access, set the Windows network profile to **Private**, then run `companion/Install-PrivateFirewall.ps1` once from an Administrator PowerShell. The script disables stale MediaDeck rules and creates only the two narrow Private/LocalSubnet rules described above. If Windows reports the network as Public, MediaDeck binds to loopback only and will not accept phone connections.
+LAN access is off by default. It does not require changing the Windows network profile. From an Administrator Command Prompt, enable the recommended paired-phone mode with the Pixel and PC addresses:
+
+```bat
+companion\Configure-LanAccess.cmd PairedPhone 192.168.0.107 192.168.0.103
+```
+
+This disables stale MediaDeck rules, binds the companion only to the PC address on that directly connected subnet, and creates program/port/interface firewall rules that accept only the given phone IP. `SameSubnet` is available as a more convenient fallback (`Configure-LanAccess.cmd SameSubnet PHONE_IP PC_IP NETWORK_CIDR`), but any device on that subnet can then reach the HTTP listener and rely on HMAC authentication for rejection. The PowerShell helper offers the same modes plus `-Disable` where local execution policy permits scripts.
 
 Start `companion/bin/Debug/net10.0-windows10.0.19041.0/MediaDeck.Companion.exe`. It runs as a shield icon in the notification area rather than leaving a CLI window open.
 
@@ -41,7 +47,7 @@ The Android debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## YouTube recommendations
 
-Windows media sessions expose playback metadata but not YouTube's recommendation list. The included browser helper reads the first nine cards that YouTube already rendered in the signed-in PC tab.
+Windows media sessions expose playback metadata but not YouTube's recommendation list. The included browser helper is required only for the swipe-up recommendation grid: it reads the first nine cards that YouTube already rendered in the signed-in PC tab and navigates that tab after a tap. Every other MediaDeck feature works without the extension.
 
 For Brave:
 

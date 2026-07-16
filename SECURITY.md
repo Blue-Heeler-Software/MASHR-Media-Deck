@@ -6,9 +6,13 @@ MediaDeck control and metadata requests require an HMAC-SHA256 signature made wi
 
 The six-digit pairing code is valid only while pairing is open. A successful pairing closes it. **Reset phone pairing** rotates the device key before opening a new code. Pairing attempts are rate-limited.
 
-The companion accepts LAN calls only from RFC1918 IPv4, IPv4 link-local, IPv6 unique-local/link-local, or loopback addresses. Browser endpoints additionally require loopback. All inputs are allowlisted or length-limited, and video playback accepts only an ID from the companion's current nine-item recommendation set.
+LAN access is off by default. The companion then binds only to `127.0.0.1` and starts no UDP discovery listener. Enabling LAN access does not require changing the Windows network profile.
 
-The companion queries Windows Network List Manager before binding. On a Public network profile it binds only to `127.0.0.1`, starts no discovery listener, and therefore cannot accept phone/LAN traffic. If an initially Private network changes to Public while the companion is running, it shuts down.
+In the recommended `PairedPhone` mode, the companion binds only to loopback and the one PC interface address that shares a directly connected subnet with the configured phone. Both the application middleware and Windows Firewall accept LAN traffic only from that phone's IPv4 address. The firewall rules are additionally scoped to the companion executable, exact local address, interface, TCP port `43821`, and UDP port `43822`.
+
+`SameSubnet` mode binds the same way but accepts the exact calculated subnet CIDR. This is not protection against an untrusted laptop already on that WLAN; that laptop can reach the HTTP parser, although it still cannot authenticate a control request without the random device key. Paired-phone mode therefore remains the default.
+
+Browser endpoints additionally require loopback. All inputs are allowlisted or length-limited, and video playback accepts only an ID from the companion's current nine-item recommendation set. A source-IP restriction is defense in depth rather than device identity: IP spoofing is possible, so HMAC pairing remains mandatory.
 
 ## Remaining limitation
 
