@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Globalization;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -18,10 +19,29 @@ using Windows.Storage.Streams;
 
 const int HttpPort = 43821;
 const int DiscoveryPort = 43822;
-var lanEnabled = NetworkProfileGuard.IsPrivateOrDomain();
+
+if (args.Length > 0 && args[0] == "--configure-lan")
+{
+    try
+    {
+        if (args.Length != 3) throw new ArgumentException("Expected mode and phone address.");
+        LanAccessPolicy.Configure(args[1], args[2]);
+    }
+    catch { Environment.ExitCode = 2; }
+    return;
+}
+if (args.Length == 1 && args[0] == "--disable-lan")
+{
+    LanAccessPolicy.Disable();
+    return;
+}
+
+var lanAccess = LanAccessPolicy.Load();
 
 var builder = WebApplication.CreateSlimBuilder(args);
-builder.WebHost.UseUrls(lanEnabled ? $"http://0.0.0.0:{HttpPort}" : $"http://127.0.0.1:{HttpPort}");
+builder.WebHost.UseUrls(lanAccess.IsEnabled
+    ? $"http://127.0.0.1:{HttpPort};http://{lanAccess.LocalAddress}:{HttpPort}"
+    : $"http://127.0.0.1:{HttpPort}");
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.Limits.MaxRequestBodySize = 32 * 1024;
@@ -63,7 +83,7 @@ app.UseRateLimiter();
 app.Use(async (context, next) =>
 {
     var remote = context.Connection.RemoteIpAddress;
-    if (!NetworkPolicy.IsPrivateOrLoopback(remote))
+    if (!lanAccess.Allows(remote))
     {
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
         return;
@@ -133,7 +153,7 @@ async Task<GlobalSystemMediaTransportControlsSession?> Session()
     return manager.GetCurrentSession();
 }
 
-app.MapGet("/api/health", () => Results.Json(new { service = "MediaDeck", paired = security.IsPaired }));
+app.MapGet("/api/health", () => Results.Json(new { service = "MediaDeck", paired = security.IsPaired, lanMode = lanAccess.Mode, bindAddress = lanAccess.IsEnabled ? lanAccess.LocalAddress?.ToString() : "loopback" }));
 app.MapPost("/api/pair", (HttpContext context) =>
 {
     var code = context.Request.Headers["X-MediaDeck-Pairing-Code"].ToString();
@@ -282,12 +302,8 @@ app.MapPost("/api/browser/youtube/state", async (HttpRequest request) =>
 app.MapGet("/api/browser/youtube/command", () => Results.Json(new { videoId = youtube.TakeCommand() }));
 
 app.MapGet("/", () => "MediaDeck Companion");
-if (lanEnabled)
-{
-    _ = LanDiscovery.Run(DiscoveryPort, HttpPort, app.Lifetime.ApplicationStopping);
-    _ = NetworkProfileGuard.StopIfNetworkBecomesPublic(app.Lifetime, app.Lifetime.ApplicationStopping);
-}
-TrayApplication.Start(security, app.Lifetime, lanEnabled);
+if (lanAccess.IsEnabled) _ = LanDiscovery.Run(DiscoveryPort, HttpPort, lanAccess, app.Lifetime.ApplicationStopping);
+TrayApplication.Start(security, app.Lifetime, lanAccess);
 app.Run();
 
 sealed class SecurityState
@@ -407,77 +423,99 @@ static class NetworkPolicy
         return IPAddress.IsLoopback(address);
     }
 
-    public static bool IsPrivateOrLoopback(IPAddress? address)
-    {
-        if (address is null) return false;
-        if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
-        if (IPAddress.IsLoopback(address)) return true;
-        if (address.AddressFamily == AddressFamily.InterNetworkV6)
-        {
-            var bytes = address.GetAddressBytes();
-            return address.IsIPv6LinkLocal || (bytes[0] & 0xFE) == 0xFC;
-        }
-        var octets = address.GetAddressBytes();
-        return octets[0] == 10
-            || (octets[0] == 172 && octets[1] is >= 16 and <= 31)
-            || (octets[0] == 192 && octets[1] == 168)
-            || (octets[0] == 169 && octets[1] == 254);
-    }
 }
 
-static class NetworkProfileGuard
+sealed record LanAccessPolicy(string Mode, IPAddress? PhoneAddress, IPAddress? LocalAddress, int PrefixLength)
 {
-    private static readonly Guid NetworkListManagerClass = new("DCB00C01-570F-4A9B-8D69-199FDBA5723B");
-
-    public static bool IsPrivateOrDomain()
+    private static readonly string DirectoryPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MediaDeck");
+    private static readonly string ConfigPath = Path.Combine(DirectoryPath, "lan-access.json");
+    public bool IsEnabled => Mode is "paired-phone" or "same-subnet" && PhoneAddress is not null && LocalAddress is not null;
+    public string Display => Mode switch
     {
-        object? managerObject = null;
-        try
-        {
-            var type = Type.GetTypeFromCLSID(NetworkListManagerClass, throwOnError: true)!;
-            managerObject = Activator.CreateInstance(type);
-            if (managerObject is null) return false;
-            dynamic manager = managerObject;
-            var found = false;
-            foreach (var item in manager.GetNetworks(1))
-            {
-                object networkObject = item;
-                try
-                {
-                    dynamic network = networkObject;
-                    found = true;
-                    var category = (int)network.GetCategory();
-                    if (category == 0) return false;
-                }
-                finally
-                {
-                    if (Marshal.IsComObject(networkObject)) Marshal.FinalReleaseComObject(networkObject);
-                }
-            }
-            return found;
-        }
-        catch { return false; }
-        finally
-        {
-            if (managerObject is not null && Marshal.IsComObject(managerObject)) Marshal.FinalReleaseComObject(managerObject);
-        }
+        "paired-phone" => $"paired phone {PhoneAddress}",
+        "same-subnet" => $"subnet {NetworkCidr}",
+        _ => "loopback only"
+    };
+    public string NetworkCidr => LocalAddress is null ? "" : $"{NetworkAddress(LocalAddress, PrefixLength)}/{PrefixLength}";
+
+    public bool Allows(IPAddress? remote)
+    {
+        if (remote is null) return false;
+        if (remote.IsIPv4MappedToIPv6) remote = remote.MapToIPv4();
+        if (IPAddress.IsLoopback(remote)) return true;
+        if (!IsEnabled || remote.AddressFamily != AddressFamily.InterNetwork) return false;
+        return Mode == "paired-phone"
+            ? remote.Equals(PhoneAddress)
+            : SameSubnet(LocalAddress!, remote, PrefixLength);
     }
 
-    public static async Task StopIfNetworkBecomesPublic(IHostApplicationLifetime lifetime, CancellationToken stopping)
+    public static LanAccessPolicy Load()
     {
         try
         {
-            while (!stopping.IsCancellationRequested)
+            if (!File.Exists(ConfigPath)) return Disabled();
+            using var document = JsonDocument.Parse(File.ReadAllText(ConfigPath));
+            var root = document.RootElement;
+            var mode = root.GetProperty("mode").GetString() ?? "";
+            var phoneText = root.GetProperty("phoneAddress").GetString() ?? "";
+            if (mode is not ("paired-phone" or "same-subnet") || !IPAddress.TryParse(phoneText, out var phone) || phone.AddressFamily != AddressFamily.InterNetwork) return Disabled();
+            var connection = FindConnection(phone);
+            return connection is null ? Disabled() : new(mode, phone, connection.Value.Address, connection.Value.PrefixLength);
+        }
+        catch { return Disabled(); }
+    }
+
+    public static void Configure(string mode, string phoneText)
+    {
+        if (mode is not ("paired-phone" or "same-subnet")) throw new ArgumentException("Unsupported LAN mode.");
+        if (!IPAddress.TryParse(phoneText, out var phone) || phone.AddressFamily != AddressFamily.InterNetwork) throw new ArgumentException("A valid IPv4 phone address is required.");
+        if (FindConnection(phone) is null) throw new ArgumentException("The phone is not on a directly connected PC subnet.");
+        Directory.CreateDirectory(DirectoryPath);
+        File.WriteAllText(ConfigPath, JsonSerializer.Serialize(new { mode, phoneAddress = phone.ToString() }));
+    }
+
+    public static void Disable()
+    {
+        try { if (File.Exists(ConfigPath)) File.Delete(ConfigPath); } catch { }
+    }
+
+    private static LanAccessPolicy Disabled() => new("loopback", null, null, 0);
+
+    private static (IPAddress Address, int PrefixLength)? FindConnection(IPAddress phone)
+    {
+        foreach (var adapter in NetworkInterface.GetAllNetworkInterfaces().Where(item => item.OperationalStatus == OperationalStatus.Up && item.NetworkInterfaceType != NetworkInterfaceType.Loopback))
+        {
+            foreach (var unicast in adapter.GetIPProperties().UnicastAddresses.Where(item => item.Address.AddressFamily == AddressFamily.InterNetwork))
             {
-                await Task.Delay(TimeSpan.FromSeconds(5), stopping);
-                if (!IsPrivateOrDomain())
-                {
-                    lifetime.StopApplication();
-                    return;
-                }
+                if (SameSubnet(unicast.Address, phone, unicast.PrefixLength)) return (unicast.Address, unicast.PrefixLength);
             }
         }
-        catch (OperationCanceledException) { }
+        return null;
+    }
+
+    private static bool SameSubnet(IPAddress left, IPAddress right, int prefixLength)
+    {
+        var a = left.GetAddressBytes();
+        var b = right.GetAddressBytes();
+        if (a.Length != 4 || b.Length != 4 || prefixLength is < 0 or > 32) return false;
+        var wholeBytes = prefixLength / 8;
+        var remainingBits = prefixLength % 8;
+        for (var index = 0; index < wholeBytes; index++) if (a[index] != b[index]) return false;
+        if (remainingBits == 0) return true;
+        var mask = (byte)(0xFF << (8 - remainingBits));
+        return (a[wholeBytes] & mask) == (b[wholeBytes] & mask);
+    }
+
+    private static IPAddress NetworkAddress(IPAddress address, int prefixLength)
+    {
+        var bytes = address.GetAddressBytes();
+        for (var index = 0; index < bytes.Length; index++)
+        {
+            var bits = Math.Clamp(prefixLength - index * 8, 0, 8);
+            var mask = bits == 0 ? 0 : (0xFF << (8 - bits)) & 0xFF;
+            bytes[index] = (byte)(bytes[index] & mask);
+        }
+        return new IPAddress(bytes);
     }
 }
 
@@ -501,13 +539,13 @@ sealed class YouTubeBridge
 
 static class TrayApplication
 {
-    public static void Start(SecurityState security, IHostApplicationLifetime lifetime, bool lanEnabled)
+    public static void Start(SecurityState security, IHostApplicationLifetime lifetime, LanAccessPolicy lanAccess)
     {
         var thread = new Thread(() =>
         {
             System.Windows.Forms.Application.EnableVisualStyles();
             System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
-            System.Windows.Forms.Application.Run(new TrayContext(security, lifetime, lanEnabled));
+            System.Windows.Forms.Application.Run(new TrayContext(security, lifetime, lanAccess));
         }) { IsBackground = true, Name = "MediaDeck tray" };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
@@ -517,14 +555,14 @@ static class TrayApplication
     {
         private readonly SecurityState security;
         private readonly IHostApplicationLifetime lifetime;
-        private readonly bool lanEnabled;
+        private readonly LanAccessPolicy lanAccess;
         private readonly System.Windows.Forms.NotifyIcon icon;
 
-        public TrayContext(SecurityState security, IHostApplicationLifetime lifetime, bool lanEnabled)
+        public TrayContext(SecurityState security, IHostApplicationLifetime lifetime, LanAccessPolicy lanAccess)
         {
             this.security = security;
             this.lifetime = lifetime;
-            this.lanEnabled = lanEnabled;
+            this.lanAccess = lanAccess;
             var menu = new System.Windows.Forms.ContextMenuStrip();
             menu.Items.Add("Show pairing status", null, (_, _) => ShowPairing());
             menu.Items.Add("Copy pairing code", null, (_, _) => CopyPairingCode());
@@ -544,11 +582,11 @@ static class TrayApplication
 
         private void ShowPairing()
         {
-            var message = !lanEnabled
-                ? "LAN access is blocked because Windows marks this network Public. Change it to Private, repair the firewall rules, then restart MediaDeck."
+            var message = !lanAccess.IsEnabled
+                ? "LAN access is off; MediaDeck is listening on this PC only. Run Configure-LanAccess to enable a phone."
                 : security.IsPairingOpen
-                ? $"Enter pairing code {security.PairingCode} on the phone."
-                : "Phone paired. Signed controls are enabled.";
+                ? $"{lanAccess.Display}. Enter pairing code {security.PairingCode} on the phone."
+                : $"{lanAccess.Display}. Signed controls are enabled.";
             icon.BalloonTipTitle = "MediaDeck Companion";
             icon.BalloonTipText = message;
             icon.BalloonTipIcon = System.Windows.Forms.ToolTipIcon.Info;
@@ -603,7 +641,7 @@ static class ForegroundApp
 
 static class LanDiscovery
 {
-    public static async Task Run(int discoveryPort, int httpPort, CancellationToken stopping)
+    public static async Task Run(int discoveryPort, int httpPort, LanAccessPolicy lanAccess, CancellationToken stopping)
     {
         try
         {
@@ -611,7 +649,7 @@ static class LanDiscovery
             while (!stopping.IsCancellationRequested)
             {
                 var request = await udp.ReceiveAsync(stopping);
-                if (!NetworkPolicy.IsPrivateOrLoopback(request.RemoteEndPoint.Address)) continue;
+                if (!lanAccess.Allows(request.RemoteEndPoint.Address)) continue;
                 var message = Encoding.UTF8.GetString(request.Buffer);
                 if (message == "MEDIADECK_DISCOVER")
                 {
