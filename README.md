@@ -1,8 +1,8 @@
 # MediaDeck
 
-MediaDeck is a second-screen Android remote for PC gamers. It keeps the game focused while the phone controls the active Windows media session, shows its artwork and metadata, switches Alt+Tab windows, and triggers NVIDIA Instant Replay.
+MediaDeck is a second-screen Android remote for PC gamers. It keeps the game focused while the phone controls the active Windows media session, shows its artwork and metadata, switches Alt+Tab windows, and arms or saves NVIDIA Instant Replay.
 
-The remote has large transport, seek, volume, shuffle/repeat, monitor-switching, Alt+Tab, and guarded swipe-to-replay controls. When a normal YouTube watch page is active, swiping up on the artwork opens a tappable 3x3 grid of the recommendations already shown in that YouTube tab.
+The remote has large transport, seek, volume, shuffle/repeat, monitor-switching, Alt+Tab, and guarded swipe-to-replay controls. YouTube creator chapters appear as progress-bar markers and a tappable **SCENES** list without a browser extension. When the optional browser helper is installed, swiping up on the artwork also opens a 3x3 grid of the recommendations already shown in that YouTube tab.
 
 ## Security model
 
@@ -47,7 +47,9 @@ The Android debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## YouTube recommendations
 
-Windows media sessions expose playback metadata but not YouTube's recommendation list. The included browser helper is required only for the swipe-up recommendation grid: it reads the first nine cards that YouTube already rendered in the signed-in PC tab and navigates that tab after a tap. Every other MediaDeck feature works without the extension.
+For Brave, Chrome, and Edge, the companion reads the selected media window's address bar through Windows UI Automation. When it is an exact YouTube watch URL, MediaDeck fetches that public YouTube page without cookies and turns creator-published description timestamps into progress markers. Tap **SCENES** between elapsed and remaining time to jump directly to a chapter. This does not require the browser helper.
+
+Windows media sessions do not expose YouTube's recommendation list. The included browser helper is required only for the swipe-up recommendation grid: it reads the first nine cards that YouTube already rendered in the signed-in PC tab and navigates that tab after a tap. Every other MediaDeck feature works without the extension.
 
 For Brave:
 
@@ -58,6 +60,12 @@ For Brave:
 For Chrome, use `chrome://extensions`. The helper requests access only to YouTube watch pages and `127.0.0.1:43821`; it does not request history, cookies, or general site access.
 
 With a YouTube video open, the phone displays **SWIPE UP FOR PICKS**. Swipe upward on the artwork, then tap one of the nine thumbnails to navigate the existing YouTube tab to that video.
+
+## NVIDIA Instant Replay
+
+MediaDeck reads NVIDIA Overlay's local `ShareSettings.json` to show whether the replay buffer is armed, its configured length, and the locally configured `DVRSave`/`DVRToggle` hotkeys. When replay is off, the guarded slider says **SWIPE TO ARM REPLAY**. Once NVIDIA reports it enabled, the same control turns green and says **SWIPE TO SAVE** with the configured buffer length.
+
+Arming starts NVIDIA's rolling capture; it does not immediately create a useful historical clip. Let the buffer run before saving. MediaDeck never exposes a remote "disarm" action, so a stale phone state cannot accidentally turn replay off.
 
 ## Restart reliability
 
@@ -74,7 +82,7 @@ Start-ScheduledTask -TaskName 'MediaDeck Companion'
 
 ## Supported players
 
-- YouTube and YouTube Music in Brave/Chrome
+- YouTube and YouTube Music in Brave/Chrome/Edge
 - Spotify
 - VLC (focused-window fallback)
 - Most players that publish a Windows global media session
