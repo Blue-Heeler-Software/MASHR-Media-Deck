@@ -12,9 +12,13 @@
 
 > Your PC keeps the game. Your phone keeps the controls.
 
+## Hero claim
+
+> YouTube scenes. Live artwork. Full media controls. Zero browser extensions required.
+
 ## One-line description
 
-MASHR Media Deck turns an Android phone into a secure local media deck for PC gamers who do not want to Alt+Tab.
+MASHR Media Deck turns an Android phone into a secure, extension-free local media deck for PC gamers who do not want to Alt+Tab.
 
 ## Short description
 
@@ -24,13 +28,16 @@ Control PC music and video from a bold, glanceable Android deck while the game k
 
 MASHR Media Deck solves the small but constant interruption of leaving a PC game to manage background media. A lightweight Windows tray companion reads the selected Windows media session and a paired Android phone presents the useful parts as large, unmistakable controls.
 
-The system is local-first: no cloud backend, account, Google login, analytics, or remote-desktop surface. Authenticated commands are allowlisted, replay-resistant, and firewall-scopeable to one paired phone. YouTube creator chapters work without a browser extension; an optional narrowly scoped helper adds only the related-video grid.
+The system is local-first: no cloud backend, account, Google login, analytics, or remote-desktop surface. Authenticated commands are allowlisted, replay-resistant, and firewall-scopeable to one paired phone.
+
+The core deck needs no browser extension. YouTube artwork, metadata, live progress, creator chapter markers, the tappable scene list, media controls, monitor switching, held Alt+Tab, replay, pairing, and reconnect all work with only the Android app and Windows companion. A narrowly scoped helper exists for one optional extra—the related-video grid—and nothing else depends on it.
 
 ## Feature callouts
 
 - Stay in-game while controlling PC music and video.
 - Glanceable artwork, metadata, and live progress.
 - Creator chapter markers and a tappable scene list.
+- No browser extension for the complete core deck.
 - Guarded arm/save flow for NVIDIA Instant Replay.
 - Hold-to-use Alt+Tab window switching.
 - Focus-preserving media-window monitor cycling.
@@ -39,11 +46,41 @@ The system is local-first: no cloud backend, account, Google login, analytics, o
 
 ## Screenshot captions
 
+### Extension-free YouTube deck
+
+![YouTube chapters on the main deck](images/pixel7-youtube-scenes.png)
+
+**Caption:** MASHR finds artwork, live time, and ten creator chapters from the selected YouTube session without a browser extension.
+
+### Scene picker
+
+![Tappable YouTube creator chapters](images/pixel7-scene-list.png)
+
+**Caption:** The current scene is highlighted; every creator timestamp is one tap away.
+
+### Held Alt+Tab
+
+![Alt held with phone window arrows](images/pixel7-alt-tab-held.png)
+
+**Caption:** Hold Alt on the phone while a second touch steps left or right through the Windows switcher.
+
+### Replay gesture
+
+![Guarded replay swipe in progress](images/pixel7-replay-gesture.png)
+
+**Caption:** The high-consequence replay action exposes its activation progress instead of firing on a stray tap.
+
+### Local pairing
+
+![Local phone-to-PC pairing](images/pixel7-local-pairing.png)
+
+**Caption:** The phone pairs directly with the PC companion—no YouTube, Google, or cloud account.
+
 ### Main deck
 
 ![MASHR Media Deck main controls](images/pixel7-now-playing.png)
 
-**Caption:** The complete MASHR Media Deck control surface fits on one Pixel 7 screen without scrolling.
+**Caption:** A second Windows media session shows that the deck is not limited to YouTube.
 
 **Alt text:** Dark Android media remote showing artwork, live progress, large purple transport buttons, blue monitor control, yellow Alt+Tab control, and orange NVIDIA replay slider.
 
@@ -76,15 +113,15 @@ Logo assets:
 
 ### Short post
 
-MASHR Media Deck turns your Android phone into a local PC media remote built for gaming: big controls, YouTube scenes, monitor switching, deliberate Alt+Tab, and guarded NVIDIA Instant Replay—without leaving the game or adding a cloud account.
+MASHR Media Deck turns your Android phone into an extension-free local PC media remote built for gaming: big controls, YouTube scenes, monitor switching, deliberate Alt+Tab, and guarded NVIDIA Instant Replay—without leaving the game or adding a cloud account.
 
 ### Longer post
 
-Meet MASHR Media Deck from Blue Heeler Software: a second-screen Android remote for PC gamers who are tired of Alt+Tabbing just to pause a video, change a track, or save a replay. It pairs directly with a Windows tray companion, keeps controls local and authenticated, shows live artwork and progress, adds YouTube chapter scenes without an extension, moves the media window between monitors, and makes NVIDIA replay state obvious before you swipe.
+Meet MASHR Media Deck from Blue Heeler Software: a second-screen Android remote for PC gamers who are tired of Alt+Tabbing just to pause a video, change a track, or save a replay. It pairs directly with a Windows tray companion, keeps controls local and authenticated, shows live artwork and progress, adds YouTube chapter scenes without an extension, moves the media window between monitors, and makes NVIDIA replay state obvious before you swipe. The optional browser helper adds only a related-video grid; the deck itself does not need it.
 
 ### Repository description
 
-Secure local Android media deck for PC gamers—live artwork, YouTube scenes, monitor switching, Alt+Tab, and NVIDIA replay.
+Extension-free local Android media deck for PC gamers—live artwork, YouTube scenes, monitor switching, Alt+Tab, and NVIDIA replay.
 
 ## Claims guidance
 
@@ -101,4 +138,5 @@ Avoid:
 - claiming formal security certification;
 - claiming support for every Windows media player;
 - describing the optional browser helper as required for chapters;
+- implying that playback, artwork, progress, scenes, or controls require a browser extension;
 - presenting the debug APK as a store-signed production build.

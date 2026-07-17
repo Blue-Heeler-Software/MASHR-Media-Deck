@@ -4,14 +4,21 @@
 
 > Your PC keeps the game. Your phone keeps the controls.
 
-[![Android 8+](https://img.shields.io/badge/Android-8%2B-7DD3FC?style=flat-square&logo=android&logoColor=white)](#build-and-run)
-[![Windows 10/11](https://img.shields.io/badge/Windows-10%20%2F%2011-A78BFA?style=flat-square&logo=windows11&logoColor=white)](#build-and-run)
+[![Android 8+](https://img.shields.io/badge/Android-8%2B-7DD3FC?style=flat-square&logo=android&logoColor=white)](#quick-start)
+[![Windows 10/11](https://img.shields.io/badge/Windows-10%20%2F%2011-A78BFA?style=flat-square&logo=windows11&logoColor=white)](#quick-start)
 [![Local only](https://img.shields.io/badge/network-local%20only-22C55E?style=flat-square)](#security-model)
 [![No cloud account](https://img.shields.io/badge/cloud-none-171923?style=flat-square)](#security-model)
+[![No browser extension](https://img.shields.io/badge/browser%20extension-not%20required-22C55E?style=flat-square)](#no-extension-needed)
 
 MASHR Media Deck is a second-screen Android remote built for PC gamers who do not want to Alt+Tab out of a game just to manage music or video. The Pixel shows the selected Windows media session, artwork, live timeline, chapter markers, and large controls while the game keeps focus.
 
-![MASHR Media Deck running on a Pixel 7](docs/images/pixel7-now-playing.png)
+![MASHR Media Deck showing extension-free YouTube scenes on a Pixel 7](docs/images/pixel7-youtube-scenes.png)
+
+## No extension needed
+
+**Everything in the core deck works with the Android app and Windows companion alone.** That includes YouTube artwork and metadata, live progress, chapter markers, the tappable **SCENES** list, transport and volume controls, monitor switching, held Alt+Tab, NVIDIA replay, local pairing, and automatic reconnect.
+
+The browser helper is not required for any control shown above. It exists for one separate, optional extra: the 3×3 related-video grid. Ignore or delete `browser-extension` and the main experience is unchanged.
 
 ## What it does
 
@@ -21,10 +28,53 @@ MASHR Media Deck is a second-screen Android remote built for PC gamers who do no
 - Guarded NVIDIA Instant Replay slider that shows whether the buffer is off, arms it explicitly, and saves with NVIDIA's configured hotkey.
 - Hold-to-use Alt+Tab: keep the yellow control held and use **PREV/NEXT** as window-switcher arrows.
 - Move the selected media window to the next monitor without stealing focus.
-- Optional 3×3 YouTube recommendation grid from a narrowly scoped browser helper.
 - Automatic reconnect through a background Windows tray companion.
+- Optional 3×3 related-video grid from a narrowly scoped helper—the only feature that uses it.
 
 See the [screenshot gallery](docs/SCREENSHOTS.md) and [press kit](docs/PRESS-KIT.md).
+
+## See it in action
+
+Every screen below is a real Pixel 7 capture from the extension-free core.
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/pixel7-youtube-scenes.png" alt="YouTube artwork, progress, and ten chapter markers on MASHR Media Deck"><br>
+      <strong>YouTube, already understood.</strong><br>
+      Artwork, title, creator, live time, and creator chapters appear without a browser add-on.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/pixel7-scene-list.png" alt="Tappable YouTube scene list on MASHR Media Deck"><br>
+      <strong>Tap straight to the good bit.</strong><br>
+      The chapter list highlights the current scene and jumps to any creator timestamp.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/pixel7-alt-tab-held.png" alt="Alt held mode with previous and next window controls"><br>
+      <strong>Alt+Tab without leaving the phone.</strong><br>
+      Hold the red state and use the renamed window arrows with a second finger.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/pixel7-replay-gesture.png" alt="Guarded NVIDIA Instant Replay swipe in progress"><br>
+      <strong>Hard to trigger by accident.</strong><br>
+      Replay requires a deliberate left-to-right swipe and reports progress before it acts.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/pixel7-now-playing.png" alt="MASHR Media Deck controlling another Windows media session"><br>
+      <strong>Not just YouTube.</strong><br>
+      Compatible Windows media sessions bring their artwork, timeline, and controls with them.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/pixel7-local-pairing.png" alt="Local one-time pairing screen with no YouTube login"><br>
+      <strong>Pair locally, not with a media account.</strong><br>
+      The one-time code belongs to the PC companion—there is no YouTube or cloud login.
+    </td>
+  </tr>
+</table>
 
 ## Designed for the couch-and-keyboard problem
 
@@ -94,11 +144,20 @@ This keeps the existing Windows private/public network profile unchanged, disabl
 
 The stable executable, Android package, scheduled-task name, discovery token, HMAC headers, and pairing-storage path retain their original `MediaDeck` identifiers so existing installs upgrade without losing pairing or restart behavior.
 
-## YouTube scenes and recommendations
+## YouTube scenes
+
+**No extension is used for this.**
 
 For Brave, Chrome, and Edge, the companion reads the address bar of the unambiguous selected media window through Windows UI Automation. When it is an exact YouTube watch URL, creator-published description timestamps become progress markers. Tap **SCENES** between elapsed and remaining time to jump to a chapter.
 
-The recommendation grid is separate and optional because Windows media sessions do not expose YouTube's related-video cards. To enable only that feature:
+## Optional extra: related-video grid
+
+The 3×3 related-video grid is the one feature that cannot be recovered from Windows media sessions or the public watch page. It is separate from playback, thumbnails, progress, controls, and scenes.
+
+<details>
+<summary>Install the narrowly scoped helper for this extra only</summary>
+
+To enable only the related-video grid:
 
 1. Open `brave://extensions` or `chrome://extensions`.
 2. Enable **Developer mode**.
@@ -106,6 +165,8 @@ The recommendation grid is separate and optional because Windows media sessions 
 4. Reload the YouTube watch page.
 
 The helper requests access only to YouTube watch pages and `127.0.0.1:43821`; it requests no history, cookies, or general browsing access.
+
+</details>
 
 ## NVIDIA Instant Replay
 
