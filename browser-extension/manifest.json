@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "MediaDeck YouTube Bridge",
-  "version": "1.0.0",
-  "description": "Shares the current YouTube tab's visible recommendations with the local MediaDeck companion.",
+  "name": "MASHR Media Deck YouTube Bridge",
+  "version": "1.1.0",
+  "description": "Shares the current YouTube tab's visible recommendations with the local MASHR Media Deck companion.",
   "host_permissions": [
     "http://127.0.0.1:43821/*"
   ],

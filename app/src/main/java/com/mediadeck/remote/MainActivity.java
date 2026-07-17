@@ -102,9 +102,16 @@ public final class MainActivity extends Activity {
 
         LinearLayout topBar=new LinearLayout(this);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
-        TextView brand=text("MEDIADECK",20,INK,true);
+        LinearLayout brandBlock=new LinearLayout(this);
+        brandBlock.setOrientation(LinearLayout.VERTICAL);
+        brandBlock.setGravity(Gravity.CENTER_VERTICAL);
+        TextView brand=text("MASHR",20,INK,true);
         brand.setLetterSpacing(.16f);
-        topBar.addView(brand,new LinearLayout.LayoutParams(0,dp(42),1));
+        brandBlock.addView(brand,new LinearLayout.LayoutParams(-1,dp(25)));
+        TextView brandSub=text("MEDIA DECK",9,PURPLE,true);
+        brandSub.setLetterSpacing(.20f);
+        brandBlock.addView(brandSub,new LinearLayout.LayoutParams(-1,dp(17)));
+        topBar.addView(brandBlock,new LinearLayout.LayoutParams(0,dp(42),1));
         Button settings=button("PC SETTINGS");
         settings.setTextSize(12);
         settings.setOnClickListener(v->openPcSettings());
@@ -325,17 +332,17 @@ public final class MainActivity extends Activity {
                 if(code==401)throw new IOException("HTTP 401");
                 if(code>=200&&code<300){
                     Bitmap bitmap=BitmapFactory.decodeStream(connection.getInputStream());
-                    if(bitmap!=null){Log.i("MediaDeck","Artwork loaded "+bitmap.getWidth()+"x"+bitmap.getHeight());ui.post(()->{artworkPending=false;artworkLoaded=true;if(!isFinishing())artwork.setImageBitmap(bitmap);});return;}
+                    if(bitmap!=null){Log.i("MASHRMediaDeck","Artwork loaded "+bitmap.getWidth()+"x"+bitmap.getHeight());ui.post(()->{artworkPending=false;artworkLoaded=true;if(!isFinishing())artwork.setImageBitmap(bitmap);});return;}
                 }
-                Log.w("MediaDeck","Artwork request returned HTTP "+code);
-            }catch(Exception error){Log.w("MediaDeck","Artwork load failed",error);}
+                Log.w("MASHRMediaDeck","Artwork request returned HTTP "+code);
+            }catch(Exception error){Log.w("MASHRMediaDeck","Artwork load failed",error);}
             finally{if(connection!=null)connection.disconnect();}
             ui.post(()->{artworkPending=false;artworkLoaded=false;});
         });
     }
 
     private void showYouTubeSuggestions(){
-        if(!youtubeAvailable){Toast.makeText(this,"Open a YouTube video with the MediaDeck browser helper enabled",Toast.LENGTH_LONG).show();return;}
+        if(!youtubeAvailable){Toast.makeText(this,"Open a YouTube video with the MASHR Media Deck browser helper enabled",Toast.LENGTH_LONG).show();return;}
         status.setText("LOADING YOUTUBE PICKS...");
         io.execute(()->{
             try{
@@ -492,7 +499,7 @@ public final class MainActivity extends Activity {
         form.addView(code,new LinearLayout.LayoutParams(-1,dp(56)));
         new AlertDialog.Builder(this)
             .setTitle("Connect securely")
-            .setMessage("Right-click the MediaDeck shield in the PC tray for its one-time code. This is local device pairing, not a YouTube login.")
+            .setMessage("Right-click the MASHR Media Deck shield in the PC tray for its one-time code. This is local device pairing, not a YouTube login.")
             .setView(form)
             .setNegativeButton("CANCEL",null)
             .setPositiveButton(deviceKey.isEmpty()?"PAIR":"CONNECT",(dialog,which)->{
