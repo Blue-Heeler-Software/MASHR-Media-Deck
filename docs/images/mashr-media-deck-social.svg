@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
   <title id="title">MASHR Media Deck social preview</title>
-  <desc id="desc">MASHR Media Deck branding with gamer media controls on a dark purple background.</desc>
+  <desc id="desc">MASHR Media Deck branding with extension-free YouTube scenes and gamer media controls on a dark purple background.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#090A10"/>
@@ -30,15 +30,19 @@
   <text x="72" y="374" fill="#F6F4FF" font-family="Segoe UI, Arial, sans-serif" font-size="29" font-weight="600">Your PC keeps the game.</text>
   <text x="72" y="414" fill="#B8B7C8" font-family="Segoe UI, Arial, sans-serif" font-size="29">Your phone keeps the controls.</text>
 
-  <g font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">
-    <rect x="72" y="468" width="178" height="46" rx="23" fill="#28243C"/>
-    <text x="161" y="498" text-anchor="middle" fill="#F6F4FF">STAY IN-GAME</text>
-    <rect x="264" y="468" width="194" height="46" rx="23" fill="#28243C"/>
-    <text x="361" y="498" text-anchor="middle" fill="#7DD3FC">YOUTUBE SCENES</text>
-    <rect x="472" y="468" width="192" height="46" rx="23" fill="#28243C"/>
-    <text x="568" y="498" text-anchor="middle" fill="#F6F4FF">REPLAY READY</text>
+  <rect x="72" y="448" width="592" height="54" rx="27" fill="#166534"/>
+  <circle cx="106" cy="475" r="12" fill="#22C55E"/>
+  <text x="370" y="482" text-anchor="middle" fill="#F0FDF4" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="800">YOUTUBE SCENES • NO EXTENSION</text>
+
+  <g font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">
+    <rect x="72" y="520" width="178" height="42" rx="21" fill="#28243C"/>
+    <text x="161" y="547" text-anchor="middle" fill="#F6F4FF">STAY IN-GAME</text>
+    <rect x="264" y="520" width="194" height="42" rx="21" fill="#28243C"/>
+    <text x="361" y="547" text-anchor="middle" fill="#7DD3FC">LIVE ARTWORK</text>
+    <rect x="472" y="520" width="192" height="42" rx="21" fill="#28243C"/>
+    <text x="568" y="547" text-anchor="middle" fill="#F6F4FF">REPLAY READY</text>
   </g>
-  <text x="72" y="570" fill="#8F8EA3" font-family="Segoe UI, Arial, sans-serif" font-size="20">ANDROID + WINDOWS • LOCAL-FIRST • BLUE HEELER SOFTWARE</text>
+  <text x="72" y="600" fill="#8F8EA3" font-family="Segoe UI, Arial, sans-serif" font-size="18">ANDROID + WINDOWS • LOCAL-FIRST • BLUE HEELER SOFTWARE</text>
 
   <g transform="translate(760 48)" filter="url(#shadow)">
     <rect width="430" height="544" rx="56" fill="#090A10" stroke="#403B57" stroke-width="6"/>

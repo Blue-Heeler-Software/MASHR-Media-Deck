@@ -1,20 +1,48 @@
 # MASHR Media Deck screenshots
 
-## Complete Pixel 7 deck
+These are real Pixel 7 captures. YouTube artwork, live progress, chapter markers, the scene picker, playback controls, monitor switching, Alt+Tab, replay, and local pairing all work without a browser extension.
 
-![Complete MASHR Media Deck interface](images/pixel7-now-playing.png)
+## Extension-free YouTube deck
 
-The complete portrait control deck is visible at once: metadata, timeline, transport, seek, volume, playback mode, monitor switching, Alt+Tab, and NVIDIA replay.
+![YouTube artwork, progress, and ten chapter markers](images/pixel7-youtube-scenes.png)
 
-## Gamer controls
+The companion identifies the selected YouTube watch page and turns creator timestamps into cyan progress markers. No browser extension, YouTube login, or cloud service is involved.
+
+## Tappable scene list
+
+![YouTube creator chapter scene picker](images/pixel7-scene-list.png)
+
+The current chapter is marked with a play arrow. Every row is a direct seek target.
+
+## Held Alt+Tab mode
+
+![Alt held mode with window arrows](images/pixel7-alt-tab-held.png)
+
+While the red control is held, **PREV/NEXT** become left/right window-switcher arrows and still accept a second touch.
+
+## Guarded replay gesture
+
+![NVIDIA replay gesture showing swipe progress](images/pixel7-replay-gesture.png)
+
+The slider shows progress before crossing its activation threshold, making an accidental replay action much less likely.
+
+## Another Windows media session
+
+![Complete MASHR Media Deck interface with another media session](images/pixel7-now-playing.png)
+
+The same portrait deck handles compatible Windows media sessions with artwork, metadata, a live timeline, and large controls.
+
+## Local pairing, not a media login
+
+![Local MASHR Media Deck pairing screen](images/pixel7-local-pairing.png)
+
+Pairing is between the phone and PC companion. The app does not ask for a YouTube, Google, or cloud account.
+
+## Gamer-control detail
 
 ![MASHR Media Deck gamer controls](images/pixel7-replay-control.png)
 
-The high-consequence controls are visually distinct:
-
-- blue moves the selected media window to the next monitor;
-- yellow holds the Windows Alt+Tab switcher while **PREV/NEXT** act as arrows;
-- amber/green requires a left-to-right replay gesture.
+Blue moves the media window between screens, yellow controls Alt+Tab, and amber/green guards Instant Replay.
 
 ## Social card
 
