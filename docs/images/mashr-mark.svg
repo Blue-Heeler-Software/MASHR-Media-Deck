@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">MASHR Media Deck mark</title>
+  <desc id="desc">White angular M and cyan play arrow on a purple rounded square.</desc>
+  <rect width="512" height="512" rx="112" fill="#090A10"/>
+  <rect x="64" y="64" width="384" height="384" rx="96" fill="#A78BFA"/>
+  <path d="M132 336V176h60l64 78 64-78h60v160h-62v-78l-62 78-62-78v78z" fill="#fff"/>
+  <path d="M332 336l76 44-76 44z" fill="#7DD3FC"/>
+</svg>

@@ -3,9 +3,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:usesCleartextTraffic="true"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
-        android:label="MediaDeck"
+        android:label="MASHR Media Deck"
         android:supportsRtl="true"
         android:theme="@style/Theme.MediaDeck">
         <activity android:name=".MainActivity" android:exported="true">
