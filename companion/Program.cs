@@ -3,7 +3,9 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Globalization;
+using System.IO;
 using System.Net;
+using System.Net.Http;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -12,6 +14,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.RateLimiting;
+using System.Windows.Automation;
 using Microsoft.AspNetCore.RateLimiting;
 using Windows.Media;
 using Windows.Media.Control;
@@ -76,6 +79,7 @@ builder.Services.AddRateLimiter(options =>
 var app = builder.Build();
 var security = new SecurityState();
 var youtube = new YouTubeBridge();
+var youtubeChapters = new YouTubeChapterProvider();
 string? preferredSource = null;
 bool preferVlc = false;
 
@@ -164,18 +168,20 @@ app.MapPost("/api/pair", (HttpContext context) =>
         : Results.Json(new { error = "Pairing is closed. Use the tray icon to reset phone pairing." }, statusCode: StatusCodes.Status409Conflict);
 }).RequireRateLimiting("pair");
 
-app.MapGet("/api/now", async () =>
+app.MapGet("/api/now", async (HttpContext context) =>
 {
+    var replay = NvidiaReplayState.Read();
     var session = await Session();
     if (preferVlc && VlcProvider.TryInfo(out var vlc))
-        return Results.Json(new { title = vlc.Title, artist = "VLC media player", source = "VLC.PC", playing = vlc.Playing, positionMs = 0L, durationMs = 0L, shuffle = false, repeat = "none", youtubeAvailable = youtube.IsFresh });
+        return Results.Json(new { title = vlc.Title, artist = "VLC media player", source = "VLC.PC", playing = vlc.Playing, positionMs = 0L, durationMs = 0L, shuffle = false, repeat = "none", youtubeAvailable = youtube.IsFresh, chapters = Array.Empty<MediaChapter>(), instantReplayAvailable = replay.Available, instantReplayEnabled = replay.Enabled, instantReplaySeconds = replay.BufferSeconds });
     if (session is null)
-        return Results.Json(new { title = "Nothing playing", artist = "Start YouTube Music or another player on this PC", source = "Windows", playing = false, positionMs = 0L, durationMs = 0L, shuffle = false, repeat = "none", youtubeAvailable = youtube.IsFresh });
+        return Results.Json(new { title = "Nothing playing", artist = "Start YouTube Music or another player on this PC", source = "Windows", playing = false, positionMs = 0L, durationMs = 0L, shuffle = false, repeat = "none", youtubeAvailable = youtube.IsFresh, chapters = Array.Empty<MediaChapter>(), instantReplayAvailable = replay.Available, instantReplayEnabled = replay.Enabled, instantReplaySeconds = replay.BufferSeconds });
     var media = await session.TryGetMediaPropertiesAsync();
     var playback = session.GetPlaybackInfo();
     var timeline = session.GetTimelineProperties();
     var duration = Math.Max(0, (timeline.EndTime - timeline.StartTime).Ticks / TimeSpan.TicksPerMillisecond);
     var position = TimelineClock.PositionMs(playback, timeline);
+    var chapters = await youtubeChapters.GetAsync(session.SourceAppUserModelId, media.Title, duration, context.RequestAborted);
     return Results.Json(new
     {
         title = media.Title,
@@ -186,7 +192,11 @@ app.MapGet("/api/now", async () =>
         durationMs = duration,
         shuffle = playback.IsShuffleActive ?? false,
         repeat = (playback.AutoRepeatMode ?? MediaPlaybackAutoRepeatMode.None).ToString().ToLowerInvariant(),
-        youtubeAvailable = youtube.IsFresh
+        youtubeAvailable = youtube.IsFresh,
+        chapters,
+        instantReplayAvailable = replay.Available,
+        instantReplayEnabled = replay.Enabled,
+        instantReplaySeconds = replay.BufferSeconds
     });
 });
 
@@ -242,7 +252,22 @@ app.MapPost("/api/seek", async (long positionMs) =>
 app.MapPost("/api/control/{command}", async (string command) =>
 {
     if (command == "alttab") { MediaKeys.AltTab(); return Results.Ok(); }
-    if (command == "instantreplay") { MediaKeys.InstantReplay(); return Results.Ok(); }
+    if (command == "instantreplay")
+    {
+        var replay = NvidiaReplayState.Read();
+        if (!replay.Available) return Results.Json(new { error = "NVIDIA Instant Replay is not available on this PC." }, statusCode: StatusCodes.Status409Conflict);
+        if (!replay.Enabled) return Results.Json(new { error = "NVIDIA Instant Replay is off. Swipe once to arm it, then save clips after the buffer has filled." }, statusCode: StatusCodes.Status409Conflict);
+        MediaKeys.Hotkey(replay.SaveKeys);
+        return Results.Json(new { action = "saved", bufferSeconds = replay.BufferSeconds });
+    }
+    if (command == "replayarm")
+    {
+        var replay = NvidiaReplayState.Read();
+        if (!replay.Available) return Results.Json(new { error = "NVIDIA Instant Replay is not available on this PC." }, statusCode: StatusCodes.Status409Conflict);
+        if (replay.Enabled) return Results.Json(new { action = "already-armed", bufferSeconds = replay.BufferSeconds });
+        MediaKeys.Hotkey(replay.ToggleKeys);
+        return Results.Json(new { action = "arming", bufferSeconds = replay.BufferSeconds });
+    }
     if (command == "altdown") { MediaKeys.BeginAltTab(); return Results.Ok(); }
     if (command == "altup") { MediaKeys.EndAltTab(); return Results.Ok(); }
     if (command is "arrowleft" or "arrowright") { MediaKeys.SwitcherArrow(command == "arrowleft" ? -1 : 1); return Results.Ok(); }
@@ -551,6 +576,231 @@ sealed class YouTubeBridge
     public string? TakeCommand() { lock (gate) { var result = command; command = null; return result; } }
 }
 
+sealed record MediaChapter(long PositionMs, string Title);
+
+sealed record NvidiaReplaySnapshot(bool Available, bool Enabled, int BufferSeconds, int[] SaveKeys, int[] ToggleKeys)
+{
+    public static NvidiaReplaySnapshot Unavailable { get; } = new(false, false, 120, [], []);
+}
+
+static class NvidiaReplayState
+{
+    private static readonly object Gate = new();
+    private static readonly string SettingsPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "NVIDIA Corporation", "NVIDIA Overlay", "ShareSettings.json");
+    private static NvidiaReplaySnapshot lastGood = NvidiaReplaySnapshot.Unavailable;
+
+    public static NvidiaReplaySnapshot Read()
+    {
+        lock (Gate)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(SettingsPath));
+                var settings = document.RootElement.GetProperty("settings");
+                var shortcuts = settings.GetProperty("shortcuts");
+                var saveKeys = ReadShortcut(shortcuts, "DVRSave");
+                var toggleKeys = ReadShortcut(shortcuts, "DVRToggle");
+                if (saveKeys.Length == 0 || toggleKeys.Length == 0) return lastGood;
+                var video = settings.GetProperty("video");
+                var enabled = video.TryGetProperty("irEnabled", out var enabledNode) && enabledNode.ValueKind == JsonValueKind.True;
+                var seconds = video.TryGetProperty("irBufferLength", out var secondsNode) && secondsNode.TryGetInt32(out var value)
+                    ? Math.Clamp(value, 15, 1200)
+                    : 120;
+                lastGood = new(true, enabled, seconds, saveKeys, toggleKeys);
+                return lastGood;
+            }
+            catch
+            {
+                return lastGood;
+            }
+        }
+    }
+
+    private static int[] ReadShortcut(JsonElement shortcuts, string name)
+    {
+        if (!shortcuts.TryGetProperty(name, out var shortcut) || shortcut.ValueKind != JsonValueKind.Array) return [];
+        return shortcut.EnumerateArray()
+            .Take(4)
+            .Select(node => node.TryGetInt32(out var key) ? key : 0)
+            .Where(key => key is >= 8 and <= 254)
+            .Distinct()
+            .ToArray();
+    }
+}
+
+sealed class YouTubeChapterProvider
+{
+    private static readonly Regex PlayerResponsePattern = new(
+        @"var ytInitialPlayerResponse\s*=\s*(?<json>\{.+?\});</script>",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.Singleline);
+    private static readonly Regex DescriptionPattern = new(
+        "\"shortDescription\"\\s*:\\s*(?<value>\"(?:\\\\.|[^\"\\\\])*\")",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex ChapterLinePattern = new(
+        @"(?m)^[ \t]*(?<time>(?:\d{1,2}:)?\d{1,3}:\d{2})[ \t]*(?:[-–—|:][ \t]*)?(?<title>[^\r\n]{1,160})[ \t]*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private readonly ConcurrentDictionary<string, Task<IReadOnlyList<MediaChapter>>> cache = new();
+    private readonly HttpClient client = CreateClient();
+
+    public async Task<IReadOnlyList<MediaChapter>> GetAsync(string source, string mediaTitle, long durationMs, CancellationToken cancellationToken)
+    {
+        if (!BrowserYouTube.TryCurrentVideoId(source, mediaTitle, out var videoId)) return [];
+        if (cache.Count > 32) cache.Clear();
+        var chapters = cache.GetOrAdd(videoId, id => FetchAsync(id, durationMs));
+        if (!chapters.IsCompleted) return [];
+        try { return await chapters.WaitAsync(cancellationToken); }
+        catch (OperationCanceledException) { throw; }
+        catch { return []; }
+    }
+
+    private async Task<IReadOnlyList<MediaChapter>> FetchAsync(string videoId, long durationMs)
+    {
+        try
+        {
+            var html = await client.GetStringAsync($"https://www.youtube.com/watch?v={videoId}&hl=en");
+            var description = ReadDescription(html);
+            if (string.IsNullOrWhiteSpace(description)) return [];
+            var maximum = durationMs > 0 ? durationMs + 5000 : TimeSpan.FromHours(24).TotalMilliseconds;
+            var chapters = ChapterLinePattern.Matches(description)
+                .Select(match => (Position: ParseTimestamp(match.Groups["time"].Value), Title: CleanTitle(match.Groups["title"].Value)))
+                .Where(item => item.Position is >= 0 && item.Position <= maximum && item.Title.Length > 0)
+                .GroupBy(item => item.Position)
+                .Select(group => new MediaChapter(group.Key, group.First().Title))
+                .OrderBy(chapter => chapter.PositionMs)
+                .Take(40)
+                .ToArray();
+            return chapters.Length >= 2 ? chapters : [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static string ReadDescription(string html)
+    {
+        var player = PlayerResponsePattern.Match(html);
+        if (player.Success)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(player.Groups["json"].Value);
+                if (document.RootElement.TryGetProperty("videoDetails", out var details) &&
+                    details.TryGetProperty("shortDescription", out var description))
+                    return description.GetString() ?? "";
+            }
+            catch (JsonException) { }
+        }
+        var fallback = DescriptionPattern.Match(html);
+        if (!fallback.Success) return "";
+        try { return JsonSerializer.Deserialize<string>(fallback.Groups["value"].Value) ?? ""; }
+        catch (JsonException) { return ""; }
+    }
+
+    private static long ParseTimestamp(string value)
+    {
+        var parts = value.Split(':');
+        if (parts.Length is not (2 or 3) || parts.Any(part => !int.TryParse(part, NumberStyles.None, CultureInfo.InvariantCulture, out _))) return -1;
+        var numbers = parts.Select(part => int.Parse(part, CultureInfo.InvariantCulture)).ToArray();
+        if (numbers[^1] >= 60 || (numbers.Length == 3 && numbers[1] >= 60)) return -1;
+        var seconds = numbers.Length == 2 ? numbers[0] * 60L + numbers[1] : numbers[0] * 3600L + numbers[1] * 60L + numbers[2];
+        return seconds * 1000;
+    }
+
+    private static string CleanTitle(string value)
+    {
+        var title = Regex.Replace(value.Trim(), @"\s+", " ");
+        return title[..Math.Min(title.Length, 120)];
+    }
+
+    private static HttpClient CreateClient()
+    {
+        var handler = new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All };
+        var result = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(6), MaxResponseContentBufferSize = 2 * 1024 * 1024 };
+        result.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/145 Safari/537.36");
+        result.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+        return result;
+    }
+}
+
+static class BrowserYouTube
+{
+    public static bool TryCurrentVideoId(string source, string mediaTitle, out string videoId)
+    {
+        videoId = "";
+        var processName = ProcessName(source);
+        if (processName is null) return false;
+        var processes = Process.GetProcessesByName(processName);
+        try
+        {
+            var windows = processes
+                .Select(process =>
+                {
+                    try { process.Refresh(); return (Window: process.MainWindowHandle, Title: process.MainWindowTitle); }
+                    catch { return (Window: IntPtr.Zero, Title: ""); }
+                })
+                .Where(item => item.Window != IntPtr.Zero)
+                .ToArray();
+            var matches = windows.Where(item => !string.IsNullOrWhiteSpace(mediaTitle) && item.Title.Contains(mediaTitle, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (matches.Length != 1) return false;
+            var selected = matches[0];
+            var root = AutomationElement.FromHandle(selected.Window);
+            if (root is null) return false;
+            var addressBar = root.FindFirst(
+                TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "view_1012"));
+            if (addressBar is null) return false;
+            try
+            {
+                if (addressBar.GetCurrentPattern(ValuePattern.Pattern) is ValuePattern value)
+                    return TryParseVideoId(value.Current.Value, out videoId);
+            }
+            catch (ElementNotAvailableException) { }
+            catch (InvalidOperationException) { }
+            return false;
+        }
+        finally
+        {
+            foreach (var process in processes) process.Dispose();
+        }
+    }
+
+    private static bool TryParseVideoId(string address, out string videoId)
+    {
+        videoId = "";
+        if (string.IsNullOrWhiteSpace(address)) return false;
+        if (!address.Contains("://", StringComparison.Ordinal)) address = "https://" + address;
+        if (!Uri.TryCreate(address, UriKind.Absolute, out var uri)) return false;
+        if (uri.Host.Equals("youtu.be", StringComparison.OrdinalIgnoreCase))
+        {
+            var candidate = uri.AbsolutePath.Trim('/').Split('/')[0];
+            if (YouTubeBridge.ValidVideoId(candidate)) { videoId = candidate; return true; }
+            return false;
+        }
+        if (!uri.Host.Equals("youtube.com", StringComparison.OrdinalIgnoreCase) &&
+            !uri.Host.EndsWith(".youtube.com", StringComparison.OrdinalIgnoreCase)) return false;
+        if (!uri.AbsolutePath.Equals("/watch", StringComparison.OrdinalIgnoreCase)) return false;
+        foreach (var item in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var pair = item.Split('=', 2);
+            if (pair.Length != 2 || !pair[0].Equals("v", StringComparison.OrdinalIgnoreCase)) continue;
+            var candidate = Uri.UnescapeDataString(pair[1]);
+            if (YouTubeBridge.ValidVideoId(candidate)) { videoId = candidate; return true; }
+        }
+        return false;
+    }
+
+    private static string? ProcessName(string source)
+    {
+        if (source.Contains("Brave", StringComparison.OrdinalIgnoreCase)) return "brave";
+        if (source.Contains("Chrome", StringComparison.OrdinalIgnoreCase)) return "chrome";
+        if (source.Contains("Edge", StringComparison.OrdinalIgnoreCase)) return "msedge";
+        return null;
+    }
+}
+
 static class TrayApplication
 {
     public static void Start(SecurityState security, IHostApplicationLifetime lifetime, LanAccessPolicy lanAccess)
@@ -638,7 +888,17 @@ static class MediaKeys
     private static CancellationTokenSource? altTimeout;
     public static void Tap(int key) { keybd_event((byte)key, 0, 0, UIntPtr.Zero); keybd_event((byte)key, 0, 2, UIntPtr.Zero); }
     public static void AltTab() { keybd_event(0x12, 0, 0, UIntPtr.Zero); keybd_event(0x09, 0, 0, UIntPtr.Zero); keybd_event(0x09, 0, 2, UIntPtr.Zero); keybd_event(0x12, 0, 2, UIntPtr.Zero); }
-    public static void InstantReplay() { lock (AltGate) { var pressAlt = !altHeld; if (pressAlt) keybd_event(0x12, 0, 0, UIntPtr.Zero); keybd_event(0x10, 0, 0, UIntPtr.Zero); Tap(0x79); keybd_event(0x10, 0, 2, UIntPtr.Zero); if (pressAlt) keybd_event(0x12, 0, 2, UIntPtr.Zero); } }
+    public static void Hotkey(IReadOnlyList<int> keys)
+    {
+        if (keys.Count == 0) return;
+        lock (AltGate)
+        {
+            if (altHeld) ReleaseAlt();
+            for (var index = 0; index < keys.Count - 1; index++) keybd_event((byte)keys[index], 0, 0, UIntPtr.Zero);
+            Tap(keys[^1]);
+            for (var index = keys.Count - 2; index >= 0; index--) keybd_event((byte)keys[index], 0, 2, UIntPtr.Zero);
+        }
+    }
     public static void BeginAltTab() { lock (AltGate) { if (!altHeld) { keybd_event(0x12, 0, 0, UIntPtr.Zero); altHeld = true; } Tap(0x09); ArmAltTimeout(); } }
     public static void SwitcherArrow(int direction) { lock (AltGate) { if (!altHeld) return; Tap(direction < 0 ? 0x25 : 0x27); ArmAltTimeout(); } }
     public static void EndAltTab() { lock (AltGate) ReleaseAlt(); }

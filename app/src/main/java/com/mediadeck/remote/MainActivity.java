@@ -47,6 +47,7 @@ import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -62,12 +63,15 @@ public final class MainActivity extends Activity {
     private final ExecutorService thumbnails=Executors.newFixedThreadPool(3);
     private final Runnable poll=()->refresh(false);
     private ImageView artwork;
-    private TextView source,title,artist,status,elapsed,remaining;
+    private TextView source,title,artist,status,elapsed,remaining,scenes;
     private Button previous,play,next,shuffle,repeat,altTab;
-    private SeekBar timeline;
+    private ChapterSeekBar timeline;
+    private SwipeReplayView replay;
     private String base="",deviceKey="",lastTrack="";
-    private boolean running,requestPending,userSeeking,altHeld,youtubeAvailable,artworkPending,artworkLoaded;
-    private long durationMs,lastArtworkAttemptMs;
+    private boolean running,requestPending,userSeeking,altHeld,youtubeAvailable,artworkPending,artworkLoaded,replayAvailable,replayEnabled;
+    private long durationMs,positionMs,lastArtworkAttemptMs;
+    private int replaySeconds=120;
+    private final ArrayList<MediaChapter> chapters=new ArrayList<>();
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
@@ -144,7 +148,7 @@ public final class MainActivity extends Activity {
         artist.setPadding(0,dp(1),0,dp(4));
         card.addView(artist);
 
-        timeline=new SeekBar(this);
+        timeline=new ChapterSeekBar(this);
         timeline.setMax(1000);
         timeline.setProgressTintList(android.content.res.ColorStateList.valueOf(PURPLE));
         timeline.setThumbTintList(android.content.res.ColorStateList.valueOf(PURPLE));
@@ -158,6 +162,13 @@ public final class MainActivity extends Activity {
         elapsed=text("0:00",11,MUTED,false);
         remaining=text("-0:00",11,MUTED,false);
         times.addView(elapsed,new LinearLayout.LayoutParams(0,-2,1));
+        scenes=text("SCENES",11,PURPLE,true);
+        scenes.setGravity(Gravity.CENTER);
+        scenes.setPadding(dp(8),0,dp(8),0);
+        scenes.setVisibility(View.INVISIBLE);
+        scenes.setOnClickListener(v->showScenes());
+        scenes.setContentDescription("Open the chapter scene list");
+        times.addView(scenes,new LinearLayout.LayoutParams(-2,-2));
         remaining.setGravity(Gravity.END);
         times.addView(remaining,new LinearLayout.LayoutParams(0,-2,1));
         times.setPadding(dp(5),0,dp(5),dp(4));
@@ -225,10 +236,7 @@ public final class MainActivity extends Activity {
         altLp.setMargins(dp(3),dp(5),dp(3),0);
         card.addView(altTab,altLp);
 
-        SwipeReplayView replay=new SwipeReplayView(()->{
-            sendKeyCommand("instantreplay");
-            Toast.makeText(this,"Instant Replay shortcut sent to PC",Toast.LENGTH_SHORT).show();
-        });
+        replay=new SwipeReplayView(this::handleReplayGesture);
         LinearLayout.LayoutParams replayLp=new LinearLayout.LayoutParams(-1,dp(56));
         replayLp.setMargins(dp(3),dp(5),dp(3),0);
         card.addView(replay,replayLp);
@@ -277,11 +285,17 @@ public final class MainActivity extends Activity {
         play.setText(playing?"PAUSE":"PLAY");
         play.setOnClickListener(v->control(playing?"pause":"play"));
         durationMs=data.optLong("durationMs");
-        long positionMs=Math.min(data.optLong("positionMs"),durationMs);
+        positionMs=Math.min(data.optLong("positionMs"),durationMs);
+        updateChapters(data.optJSONArray("chapters"));
         if(!userSeeking)timeline.setProgress(durationMs>0?(int)(positionMs*1000/durationMs):0);
+        timeline.setChapters(chapters,durationMs);
         timeline.setEnabled(durationMs>0);
         elapsed.setText(formatTime(positionMs));
         remaining.setText("-"+formatTime(Math.max(0,durationMs-positionMs)));
+        replayAvailable=data.optBoolean("instantReplayAvailable",false);
+        replayEnabled=data.optBoolean("instantReplayEnabled",false);
+        replaySeconds=Math.max(15,data.optInt("instantReplaySeconds",120));
+        replay.setReplayState(replayAvailable,replayEnabled,replaySeconds);
         shuffle.setText(data.optBoolean("shuffle")?"SHUFFLE ON":"SHUFFLE");
         String repeatMode=data.optString("repeat","none");
         repeat.setText(repeatMode.equals("track")?"REPEAT 1":repeatMode.equals("list")?"REPEAT ALL":"REPEAT");
@@ -404,6 +418,51 @@ public final class MainActivity extends Activity {
         io.execute(()->{
             try{post("/api/youtube/play?videoId="+videoId);ui.post(()->Toast.makeText(this,"Playing: "+videoTitle,Toast.LENGTH_SHORT).show());}
             catch(Exception error){ui.post(()->Toast.makeText(this,"That suggestion expired - swipe up again",Toast.LENGTH_SHORT).show());}
+        });
+    }
+
+    private void updateChapters(JSONArray values){
+        chapters.clear();
+        if(values!=null){
+            for(int index=0;index<Math.min(40,values.length());index++){
+                JSONObject item=values.optJSONObject(index);
+                if(item==null)continue;
+                long marker=item.optLong("positionMs",-1);
+                String label=item.optString("title","").trim();
+                if(marker<0||label.isEmpty())continue;
+                chapters.add(new MediaChapter(marker,label.substring(0,Math.min(120,label.length()))));
+            }
+        }
+        scenes.setText(chapters.size()+" SCENES");
+        scenes.setVisibility(chapters.size()>=2?View.VISIBLE:View.INVISIBLE);
+    }
+
+    private void showScenes(){
+        if(chapters.size()<2){Toast.makeText(this,"No chapter list is published for this video",Toast.LENGTH_SHORT).show();return;}
+        int active=0;
+        for(int index=0;index<chapters.size();index++){if(chapters.get(index).positionMs<=positionMs)active=index;else break;}
+        String[] labels=new String[chapters.size()];
+        for(int index=0;index<chapters.size();index++){
+            MediaChapter chapter=chapters.get(index);
+            labels[index]=(index==active?"▶  ":"     ")+formatTime(chapter.positionMs)+"  "+chapter.title;
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("SCENES  /  TAP TO JUMP")
+            .setItems(labels,(dialog,index)->{MediaChapter chapter=chapters.get(index);seekTo(chapter.positionMs);Toast.makeText(this,"Jumping to "+chapter.title,Toast.LENGTH_SHORT).show();})
+            .setNegativeButton("CLOSE",null)
+            .show();
+    }
+
+    private void handleReplayGesture(){
+        if(!replayAvailable){Toast.makeText(this,"NVIDIA Instant Replay is unavailable. Check NVIDIA Overlay settings on the PC.",Toast.LENGTH_LONG).show();return;}
+        final boolean save=replayEnabled;
+        io.execute(()->{
+            try{
+                JSONObject result=new JSONObject(post(save?"/api/control/instantreplay":"/api/control/replayarm"));
+                int seconds=Math.max(15,result.optInt("bufferSeconds",replaySeconds));
+                ui.post(()->Toast.makeText(this,save?"Saving the last "+formatTime(seconds*1000L)+" of gameplay":"Replay buffer is arming - save once the track turns green",Toast.LENGTH_LONG).show());
+            }catch(Exception error){ui.post(()->Toast.makeText(this,"Replay failed: "+safeMessage(error),Toast.LENGTH_LONG).show());}
+            ui.postDelayed(()->refresh(false),1600);
         });
     }
 
@@ -556,13 +615,51 @@ public final class MainActivity extends Activity {
     private GradientDrawable round(int color,int radius){GradientDrawable drawable=new GradientDrawable();drawable.setColor(color);drawable.setCornerRadius(dp(radius));return drawable;}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
 
+    private static final class MediaChapter {
+        final long positionMs;
+        final String title;
+        MediaChapter(long positionMs,String title){this.positionMs=positionMs;this.title=title;}
+    }
+
+    private final class ChapterSeekBar extends SeekBar {
+        private final Paint marker=new Paint(Paint.ANTI_ALIAS_FLAG);
+        private long[] positions=new long[0];
+        private long chapterDurationMs;
+        ChapterSeekBar(Activity context){super(context);marker.setColor(Color.rgb(125,211,252));}
+        void setChapters(ArrayList<MediaChapter> values,long duration){
+            chapterDurationMs=duration;
+            positions=new long[values.size()];
+            for(int index=0;index<values.size();index++)positions[index]=values.get(index).positionMs;
+            setContentDescription(values.size()>=2?"Playback timeline with "+values.size()+" scene markers. Tap SCENES for the list.":"Playback timeline");
+            invalidate();
+        }
+        @Override protected void onDraw(Canvas canvas){
+            super.onDraw(canvas);
+            if(chapterDurationMs<=0||positions.length<2)return;
+            float left=getPaddingLeft(),width=getWidth()-getPaddingLeft()-getPaddingRight(),center=getHeight()/2f,half=getResources().getDisplayMetrics().density*1.5f,height=dp(5);
+            for(long position:positions){
+                if(position<=0||position>=chapterDurationMs)continue;
+                float x=left+width*Math.min(1f,(float)position/chapterDurationMs);
+                canvas.drawRoundRect(x-half,center-height,x+half,center+height,half,half,marker);
+            }
+        }
+    }
+
     private final class SwipeReplayView extends View {
         private final Paint track=new Paint(Paint.ANTI_ALIAS_FLAG),fill=new Paint(Paint.ANTI_ALIAS_FLAG),handle=new Paint(Paint.ANTI_ALIAS_FLAG),label=new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Runnable activate;
         private float progress,startY;
         private boolean tracking,complete;
-        SwipeReplayView(Runnable activate){super(MainActivity.this);this.activate=activate;setContentDescription("Swipe left to right to save instant replay");setFocusable(true);track.setColor(Color.rgb(20,83,45));fill.setColor(Color.rgb(34,197,94));handle.setColor(Color.rgb(236,253,245));label.setColor(Color.WHITE);label.setTextAlign(Paint.Align.CENTER);label.setTypeface(Typeface.DEFAULT_BOLD);label.setTextSize(getResources().getDisplayMetrics().scaledDensity*14);}
-        @Override protected void onDraw(Canvas canvas){super.onDraw(canvas);float radius=getHeight()/2f;RectF bounds=new RectF(0,0,getWidth(),getHeight());canvas.drawRoundRect(bounds,radius,radius,track);float knob=dp(22),left=knob,right=getWidth()-knob,x=left+(right-left)*progress;if(progress>0){RectF active=new RectF(0,0,x,getHeight());canvas.drawRoundRect(active,radius,radius,fill);}canvas.drawCircle(x,getHeight()/2f,knob,handle);String text=complete?"REPLAY SHORTCUT SENT":tracking?"KEEP SWIPING  "+Math.round(progress*100)+"%":"SWIPE TO SAVE REPLAY  >";Paint.FontMetrics metrics=label.getFontMetrics();canvas.drawText(text,getWidth()/2f,getHeight()/2f-(metrics.ascent+metrics.descent)/2,label);}
+        private String readyText="CHECKING NVIDIA REPLAY...",completeText="REPLAY REQUEST SENT";
+        SwipeReplayView(Runnable activate){super(MainActivity.this);this.activate=activate;setFocusable(true);fill.setColor(Color.rgb(34,197,94));handle.setColor(Color.rgb(236,253,245));label.setColor(Color.WHITE);label.setTextAlign(Paint.Align.CENTER);label.setTypeface(Typeface.DEFAULT_BOLD);label.setTextSize(getResources().getDisplayMetrics().scaledDensity*14);setReplayState(false,false,120);}
+        void setReplayState(boolean available,boolean enabled,int seconds){
+            track.setColor(!available?Color.rgb(69,36,36):enabled?Color.rgb(20,83,45):Color.rgb(120,53,15));
+            readyText=!available?"NVIDIA REPLAY UNAVAILABLE":enabled?"SWIPE TO SAVE "+formatTime(seconds*1000L)+"  >":"SWIPE TO ARM REPLAY  >";
+            completeText=enabled?"REPLAY SAVE REQUEST SENT":"REPLAY ARM REQUEST SENT";
+            setContentDescription(readyText);
+            invalidate();
+        }
+        @Override protected void onDraw(Canvas canvas){super.onDraw(canvas);float radius=getHeight()/2f;RectF bounds=new RectF(0,0,getWidth(),getHeight());canvas.drawRoundRect(bounds,radius,radius,track);float knob=dp(22),left=knob,right=getWidth()-knob,x=left+(right-left)*progress;if(progress>0){RectF active=new RectF(0,0,x,getHeight());canvas.drawRoundRect(active,radius,radius,fill);}canvas.drawCircle(x,getHeight()/2f,knob,handle);String text=complete?completeText:tracking?"KEEP SWIPING  "+Math.round(progress*100)+"%":readyText;Paint.FontMetrics metrics=label.getFontMetrics();canvas.drawText(text,getWidth()/2f,getHeight()/2f-(metrics.ascent+metrics.descent)/2,label);}
         @Override public boolean onTouchEvent(MotionEvent event){float knob=dp(22),usable=Math.max(1,getWidth()-2*knob);switch(event.getActionMasked()){case MotionEvent.ACTION_DOWN:if(complete||event.getX()>getWidth()*.30f)return true;tracking=true;startY=event.getY();progress=Math.max(0,Math.min(1,(event.getX()-knob)/usable));getParent().requestDisallowInterceptTouchEvent(true);invalidate();return true;case MotionEvent.ACTION_MOVE:if(!tracking)return true;if(Math.abs(event.getY()-startY)>dp(42)){cancelSwipe();return true;}progress=Math.max(0,Math.min(1,(event.getX()-knob)/usable));invalidate();return true;case MotionEvent.ACTION_UP:if(tracking&&progress>=.85f){tracking=false;complete=true;progress=1;performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);activate.run();invalidate();postDelayed(()->{complete=false;progress=0;invalidate();},2200);}else cancelSwipe();getParent().requestDisallowInterceptTouchEvent(false);return true;case MotionEvent.ACTION_CANCEL:cancelSwipe();getParent().requestDisallowInterceptTouchEvent(false);return true;default:return true;}}
         private void cancelSwipe(){tracking=false;progress=0;invalidate();}
     }
