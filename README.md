@@ -1,90 +1,144 @@
-# MediaDeck
+# MASHR Media Deck
 
-MediaDeck is a second-screen Android remote for PC gamers. It keeps the game focused while the phone controls the active Windows media session, shows its artwork and metadata, switches Alt+Tab windows, and arms or saves NVIDIA Instant Replay.
+![MASHR Media Deck — stay in the game](docs/images/mashr-media-deck-social.png)
 
-The remote has large transport, seek, volume, shuffle/repeat, monitor-switching, Alt+Tab, and guarded swipe-to-replay controls. YouTube creator chapters appear as progress-bar markers and a tappable **SCENES** list without a browser extension. When the optional browser helper is installed, swiping up on the artwork also opens a 3x3 grid of the recommendations already shown in that YouTube tab.
+> Your PC keeps the game. Your phone keeps the controls.
+
+[![Android 8+](https://img.shields.io/badge/Android-8%2B-7DD3FC?style=flat-square&logo=android&logoColor=white)](#build-and-run)
+[![Windows 10/11](https://img.shields.io/badge/Windows-10%20%2F%2011-A78BFA?style=flat-square&logo=windows11&logoColor=white)](#build-and-run)
+[![Local only](https://img.shields.io/badge/network-local%20only-22C55E?style=flat-square)](#security-model)
+[![No cloud account](https://img.shields.io/badge/cloud-none-171923?style=flat-square)](#security-model)
+
+MASHR Media Deck is a second-screen Android remote built for PC gamers who do not want to Alt+Tab out of a game just to manage music or video. The Pixel shows the selected Windows media session, artwork, live timeline, chapter markers, and large controls while the game keeps focus.
+
+![MASHR Media Deck running on a Pixel 7](docs/images/pixel7-now-playing.png)
+
+## What it does
+
+- Large play/pause, previous/next, volume, mute, shuffle, repeat, stop, and ±10-second controls.
+- Live artwork, title, artist, elapsed time, remaining time, and continuously updating progress.
+- Tappable YouTube creator chapters as progress markers and a **SCENES** list—no extension required.
+- Guarded NVIDIA Instant Replay slider that shows whether the buffer is off, arms it explicitly, and saves with NVIDIA's configured hotkey.
+- Hold-to-use Alt+Tab: keep the yellow control held and use **PREV/NEXT** as window-switcher arrows.
+- Move the selected media window to the next monitor without stealing focus.
+- Optional 3×3 YouTube recommendation grid from a narrowly scoped browser helper.
+- Automatic reconnect through a background Windows tray companion.
+
+See the [screenshot gallery](docs/SCREENSHOTS.md) and [press kit](docs/PRESS-KIT.md).
+
+## Designed for the couch-and-keyboard problem
+
+MASHR Media Deck is not a general remote-desktop app. It exposes a small allowlisted media-control surface so a phone can handle the routine interruptions while the PC remains on the game:
+
+| Moment | Phone action |
+| --- | --- |
+| A track is too loud | Tap **VOL −** or **MUTE** |
+| A video drifts into filler | Tap **+10 SEC** or a chapter marker |
+| The media window is on the wrong display | Tap **MOVE MEDIA TO NEXT SCREEN** |
+| Something worth clipping just happened | Swipe the guarded replay control |
+| A different PC window is needed | Hold **ALT + TAB**, then tap **PREV/NEXT** |
 
 ## Security model
 
-The phone needs no media permissions, Google login, or YouTube account access. It pairs once to the PC companion using the six-digit code shown by the MediaDeck tray icon.
+The phone needs no Google login, YouTube account access, Android media permission, or cloud account. It pairs once with the PC companion using a six-digit tray code.
 
 - Every media/control request is authenticated with HMAC-SHA256.
-- Each request has a 30-second clock window and one-use nonce, so captured requests cannot simply be replayed.
-- Pairing is one-time and limited to five attempts per ten minutes. Resetting phone pairing rotates the 256-bit device key.
-- The server binds only to loopback plus one directly connected PC address; it can allow either one paired-phone IP or the exact connected subnet.
-- The YouTube browser bridge is loopback-only and cannot be reached from another LAN device.
-- Request size, header time, connection lifetime, and request rate are bounded.
-- The companion exposes fixed media actions only; there is no shell, command text, file upload, or arbitrary URL endpoint.
+- Requests have a 30-second clock window and one-use nonce.
+- Successful pairing closes the code; resetting pairing rotates the 256-bit key.
+- Recommended LAN mode binds to one PC interface and accepts only the paired phone IP.
+- Control commands are fixed and allowlisted—there is no shell, arbitrary URL, file upload, process ID, window handle, or coordinate endpoint.
+- Browser-helper traffic is loopback-only.
+- YouTube chapters use the public page for the exact selected watch URL and send no browser cookies.
 
-Do not forward TCP `43821` or UDP `43822` on the router. The transport is authenticated but is not TLS-encrypted; see [SECURITY.md](SECURITY.md) for the remaining LAN-sniffing caveat.
+Do not forward TCP `43821` or UDP `43822` on a router. Read [SECURITY.md](SECURITY.md) for the complete threat model and remaining HTTP confidentiality limitation.
 
-## Build and run
+## Quick start
 
-Build both parts:
+### 1. Build
+
+Requirements:
+
+- Windows 10 or 11
+- .NET 10 SDK
+- JDK 17
+- Android SDK 36 / Build Tools 36
+- Android device with USB debugging for direct deployment
 
 ```powershell
 dotnet build companion/MediaDeck.Companion.csproj -c Debug
 ./gradlew.bat :app:assembleDebug
 ```
 
-LAN access is off by default. It does not require changing the Windows network profile. From an Administrator Command Prompt, enable the recommended paired-phone mode with the Pixel and PC addresses:
+The Android APK is written to:
 
-```bat
-companion\Configure-LanAccess.cmd PairedPhone 192.168.0.107 192.168.0.103
+```text
+app/build/outputs/apk/debug/app-debug.apk
 ```
 
-This disables stale MediaDeck rules, binds the companion only to the PC address on that directly connected subnet, and creates program/port/interface firewall rules that accept only the given phone IP. `SameSubnet` is available as a more convenient fallback (`Configure-LanAccess.cmd SameSubnet PHONE_IP PC_IP NETWORK_CIDR`), but any device on that subnet can then reach the HTTP listener and rely on HMAC authentication for rejection. The PowerShell helper offers the same modes plus `-Disable` where local execution policy permits scripts.
+### 2. Restrict LAN access
 
-Start `companion/bin/Debug/net10.0-windows10.0.19041.0/MediaDeck.Companion.exe`. It runs as a shield icon in the notification area rather than leaving a CLI window open.
+LAN access is off by default. From an Administrator Command Prompt, enable the recommended paired-phone mode with the Pixel and PC addresses:
 
-On first connection:
+```bat
+companion\Configure-LanAccess.cmd PairedPhone PHONE_IP PC_IP
+```
 
-1. Right-click or double-click the MediaDeck tray shield to show its one-time code.
-2. On the phone, tap **PC SETTINGS**, enter the code, and tap **PAIR**. The PC address may be left blank for LAN discovery.
-3. After pairing, the code closes. Use **Reset phone pairing** from the tray icon only when replacing/reinstalling the phone app.
+This keeps the existing Windows private/public network profile unchanged, disables stale broad rules, binds the companion to the chosen PC interface, and scopes the firewall to the given phone IP. `SameSubnet` is available as a convenience fallback, but every device on that subnet can then reach the authenticated HTTP listener.
 
-The Android debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+### 3. Pair the phone
 
-## YouTube recommendations
+1. Start `companion/bin/Debug/net10.0-windows10.0.19041.0/MediaDeck.Companion.exe`.
+2. Right-click or double-click the **MASHR Media Deck** shield in the notification area.
+3. On the phone, tap **PC SETTINGS**, enter the six-digit code, and tap **PAIR**.
+4. Leave the PC address blank to use local discovery, or enter it directly.
 
-For Brave, Chrome, and Edge, the companion reads the selected media window's address bar through Windows UI Automation. When it is an exact YouTube watch URL, MediaDeck fetches that public YouTube page without cookies and turns creator-published description timestamps into progress markers. Tap **SCENES** between elapsed and remaining time to jump directly to a chapter. This does not require the browser helper.
+The stable executable, Android package, scheduled-task name, discovery token, HMAC headers, and pairing-storage path retain their original `MediaDeck` identifiers so existing installs upgrade without losing pairing or restart behavior.
 
-Windows media sessions do not expose YouTube's recommendation list. The included browser helper is required only for the swipe-up recommendation grid: it reads the first nine cards that YouTube already rendered in the signed-in PC tab and navigates that tab after a tap. Every other MediaDeck feature works without the extension.
+## YouTube scenes and recommendations
 
-For Brave:
+For Brave, Chrome, and Edge, the companion reads the address bar of the unambiguous selected media window through Windows UI Automation. When it is an exact YouTube watch URL, creator-published description timestamps become progress markers. Tap **SCENES** between elapsed and remaining time to jump to a chapter.
 
-1. Open `brave://extensions` and enable **Developer mode**.
-2. Choose **Load unpacked** and select the repository's `browser-extension` folder.
-3. Reload the YouTube watch tab once.
+The recommendation grid is separate and optional because Windows media sessions do not expose YouTube's related-video cards. To enable only that feature:
 
-For Chrome, use `chrome://extensions`. The helper requests access only to YouTube watch pages and `127.0.0.1:43821`; it does not request history, cookies, or general site access.
+1. Open `brave://extensions` or `chrome://extensions`.
+2. Enable **Developer mode**.
+3. Choose **Load unpacked** and select `browser-extension`.
+4. Reload the YouTube watch page.
 
-With a YouTube video open, the phone displays **SWIPE UP FOR PICKS**. Swipe upward on the artwork, then tap one of the nine thumbnails to navigate the existing YouTube tab to that video.
+The helper requests access only to YouTube watch pages and `127.0.0.1:43821`; it requests no history, cookies, or general browsing access.
 
 ## NVIDIA Instant Replay
 
-MediaDeck reads NVIDIA Overlay's local `ShareSettings.json` to show whether the replay buffer is armed, its configured length, and the locally configured `DVRSave`/`DVRToggle` hotkeys. When replay is off, the guarded slider says **SWIPE TO ARM REPLAY**. Once NVIDIA reports it enabled, the same control turns green and says **SWIPE TO SAVE** with the configured buffer length.
+MASHR Media Deck reads NVIDIA Overlay's local `ShareSettings.json` for:
 
-Arming starts NVIDIA's rolling capture; it does not immediately create a useful historical clip. Let the buffer run before saving. MediaDeck never exposes a remote "disarm" action, so a stale phone state cannot accidentally turn replay off.
+- whether Instant Replay is enabled;
+- the configured rolling-buffer duration;
+- the configured `DVRSave` and `DVRToggle` shortcuts.
+
+When replay is off, the slider is orange and says **SWIPE TO ARM REPLAY**. Once NVIDIA reports the buffer enabled, it turns green and becomes **SWIPE TO SAVE**. The remote does not expose a disarm action, so stale phone state cannot accidentally switch the buffer off.
 
 ## Restart reliability
 
-The companion listens on authenticated HTTP port `43821` and answers LAN discovery broadcasts on UDP port `43822`. Registering it as an **At log on** task restores reconnect-after-restart behavior without a visible console:
+Register the companion as an **At log on** task so it reconnects without a visible terminal:
 
 ```powershell
 $exe = (Resolve-Path './companion/bin/Debug/net10.0-windows10.0.19041.0/MediaDeck.Companion.exe').Path
 $action = New-ScheduledTaskAction -Execute $exe -WorkingDirectory (Split-Path $exe)
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-Register-ScheduledTask -TaskName 'MediaDeck Companion' -Action $action -Trigger $trigger -Settings $settings -Description 'Authenticated MediaDeck LAN media companion' -Force
+Register-ScheduledTask -TaskName 'MediaDeck Companion' -Action $action -Trigger $trigger -Settings $settings -Description 'Authenticated MASHR Media Deck LAN companion' -Force
 Start-ScheduledTask -TaskName 'MediaDeck Companion'
 ```
 
 ## Supported players
 
-- YouTube and YouTube Music in Brave/Chrome/Edge
+- YouTube and YouTube Music in Brave, Chrome, or Edge
 - Spotify
-- VLC (focused-window fallback)
+- VLC focused-window fallback
 - Most players that publish a Windows global media session
 
-MediaDeck has no analytics, account system, or cloud backend.
+## Project status
+
+MASHR Media Deck `1.4.0` is an owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. It has no analytics, cloud backend, advertising, or account system.
+
+Release history is in [CHANGELOG.md](CHANGELOG.md).

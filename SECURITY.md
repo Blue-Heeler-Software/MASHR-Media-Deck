@@ -1,8 +1,8 @@
-# MediaDeck security notes
+# MASHR Media Deck security notes
 
 ## What is protected
 
-MediaDeck control and metadata requests require an HMAC-SHA256 signature made with a random 256-bit key stored in the private app data of the phone and the current Windows user. The signature covers the HTTP method, exact path and query, timestamp, and random nonce. The companion rejects stale timestamps and already-seen nonces.
+MASHR Media Deck control and metadata requests require an HMAC-SHA256 signature made with a random 256-bit key stored in the private app data of the phone and the current Windows user. The signature covers the HTTP method, exact path and query, timestamp, and random nonce. The companion rejects stale timestamps and already-seen nonces.
 
 The six-digit pairing code is valid only while pairing is open. A successful pairing closes it. **Reset phone pairing** rotates the device key before opening a new code. Pairing attempts are rate-limited.
 
@@ -28,4 +28,4 @@ For the intended home-LAN setup, pair on a WPA2/WPA3 private network, do not pai
 
 ## If a phone or key may be compromised
 
-Right-click the MediaDeck tray shield and select **Reset phone pairing**. This invalidates the old phone key immediately. Pair the intended phone again with the new one-time code.
+Right-click the MASHR Media Deck tray shield and select **Reset phone pairing**. This invalidates the old phone key immediately. Pair the intended phone again with the new one-time code.

@@ -157,7 +157,7 @@ async Task<GlobalSystemMediaTransportControlsSession?> Session()
     return manager.GetCurrentSession();
 }
 
-app.MapGet("/api/health", () => Results.Json(new { service = "MediaDeck", paired = security.IsPaired, lanMode = lanAccess.Mode, bindAddress = lanAccess.IsEnabled ? lanAccess.LocalAddress?.ToString() : "loopback" }));
+app.MapGet("/api/health", () => Results.Json(new { service = "MASHR Media Deck", paired = security.IsPaired, lanMode = lanAccess.Mode, bindAddress = lanAccess.IsEnabled ? lanAccess.LocalAddress?.ToString() : "loopback" }));
 app.MapPost("/api/pair", (HttpContext context) =>
 {
     var code = context.Request.Headers["X-MediaDeck-Pairing-Code"].ToString();
@@ -340,7 +340,7 @@ app.MapPost("/api/browser/youtube/state", async (HttpRequest request) =>
 });
 app.MapGet("/api/browser/youtube/command", () => Results.Json(new { videoId = youtube.TakeCommand() }));
 
-app.MapGet("/", () => "MediaDeck Companion");
+app.MapGet("/", () => "MASHR Media Deck Companion");
 if (lanAccess.IsEnabled) _ = LanDiscovery.Run(DiscoveryPort, HttpPort, lanAccess, app.Lifetime.ApplicationStopping);
 TrayApplication.Start(security, app.Lifetime, lanAccess);
 app.Run();
@@ -810,7 +810,7 @@ static class TrayApplication
             System.Windows.Forms.Application.EnableVisualStyles();
             System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
             System.Windows.Forms.Application.Run(new TrayContext(security, lifetime, lanAccess));
-        }) { IsBackground = true, Name = "MediaDeck tray" };
+        }) { IsBackground = true, Name = "MASHR Media Deck tray" };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
     }
@@ -832,11 +832,11 @@ static class TrayApplication
             menu.Items.Add("Copy pairing code", null, (_, _) => CopyPairingCode());
             menu.Items.Add("Reset phone pairing", null, (_, _) => ResetPairing());
             menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
-            menu.Items.Add("Exit MediaDeck", null, (_, _) => Exit());
+            menu.Items.Add("Exit MASHR Media Deck", null, (_, _) => Exit());
             icon = new System.Windows.Forms.NotifyIcon
             {
                 Icon = SystemIcons.Shield,
-                Text = "MediaDeck Companion",
+                Text = "MASHR Media Deck Companion",
                 ContextMenuStrip = menu,
                 Visible = true
             };
@@ -847,11 +847,11 @@ static class TrayApplication
         private void ShowPairing()
         {
             var message = !lanAccess.IsEnabled
-                ? "LAN access is off; MediaDeck is listening on this PC only. Run Configure-LanAccess to enable a phone."
+                ? "LAN access is off; MASHR Media Deck is listening on this PC only. Run Configure-LanAccess to enable a phone."
                 : security.IsPairingOpen
                 ? $"{lanAccess.Display}. Enter pairing code {security.PairingCode} on the phone."
                 : $"{lanAccess.Display}. Signed controls are enabled.";
-            icon.BalloonTipTitle = "MediaDeck Companion";
+            icon.BalloonTipTitle = "MASHR Media Deck Companion";
             icon.BalloonTipText = message;
             icon.BalloonTipIcon = System.Windows.Forms.ToolTipIcon.Info;
             icon.ShowBalloonTip(6000);

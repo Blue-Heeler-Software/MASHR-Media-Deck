@@ -27,7 +27,7 @@ set "PC=%~3"
 set "EXE=%~dp0bin\Debug\net10.0-windows10.0.19041.0\MediaDeck.Companion.exe"
 
 if not exist "%EXE%" (
-  echo Build the MediaDeck companion first: %EXE%
+  echo Build the MASHR Media Deck companion first: %EXE%
   exit /b 1
 )
 
@@ -47,11 +47,11 @@ if errorlevel 1 goto failed
 
 schtasks /Run /TN "MediaDeck Companion" >nul 2>&1
 if errorlevel 1 start "" "%EXE%"
-echo MediaDeck %~1 mode is enabled: PC %PC%, remote %REMOTE%.
+echo MASHR Media Deck %~1 mode is enabled: PC %PC%, remote %REMOTE%.
 exit /b 0
 
 :failed
-echo MediaDeck LAN configuration failed. The old broad firewall rules remain disabled.
+echo MASHR Media Deck LAN configuration failed. The old broad firewall rules remain disabled.
 exit /b 1
 
 :usage

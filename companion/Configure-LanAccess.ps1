@@ -69,9 +69,9 @@ Disable-ExistingRules
 
 if ($Disable) {
     $configuration = Start-Process -FilePath $exe -ArgumentList '--disable-lan' -WorkingDirectory (Split-Path $exe) -WindowStyle Hidden -Wait -PassThru
-    if ($configuration.ExitCode -ne 0) { throw 'MediaDeck refused the loopback-only configuration.' }
+    if ($configuration.ExitCode -ne 0) { throw 'MASHR Media Deck refused the loopback-only configuration.' }
     Start-MediaDeck
-    Write-Host 'MediaDeck LAN access is disabled; only this PC can reach the companion.'
+    Write-Host 'MASHR Media Deck LAN access is disabled; only this PC can reach the companion.'
     return
 }
 
@@ -96,20 +96,20 @@ $mode = if ($Scope -eq 'PairedPhone') { 'paired-phone' } else { 'same-subnet' }
 
 New-NetFirewallRule `
     -DisplayName 'MediaDeck Companion TCP (Restricted)' `
-    -Description "Authenticated MediaDeck control; $Scope scope only." `
+    -Description "Authenticated MASHR Media Deck control; $Scope scope only." `
     -Direction Inbound -Action Allow -Program $exe -Protocol TCP -LocalPort 43821 `
     -LocalAddress $connection.IPAddress -RemoteAddress $remoteScope -InterfaceAlias $connection.InterfaceAlias `
     -Profile Any | Out-Null
 
 New-NetFirewallRule `
     -DisplayName 'MediaDeck Discovery UDP (Restricted)' `
-    -Description "MediaDeck discovery; $Scope scope only." `
+    -Description "MASHR Media Deck discovery; $Scope scope only." `
     -Direction Inbound -Action Allow -Program $exe -Protocol UDP -LocalPort 43822 `
     -LocalAddress $connection.IPAddress -RemoteAddress $remoteScope -InterfaceAlias $connection.InterfaceAlias `
     -Profile Any | Out-Null
 
 $configuration = Start-Process -FilePath $exe -ArgumentList @('--configure-lan', $mode, $PhoneAddress) -WorkingDirectory (Split-Path $exe) -WindowStyle Hidden -Wait -PassThru
-if ($configuration.ExitCode -ne 0) { throw 'MediaDeck rejected the requested LAN scope.' }
+if ($configuration.ExitCode -ne 0) { throw 'MASHR Media Deck rejected the requested LAN scope.' }
 
 Start-MediaDeck
-Write-Host "MediaDeck is bound to $($connection.IPAddress) and firewall-scoped to $remoteScope ($Scope)."
+Write-Host "MASHR Media Deck is bound to $($connection.IPAddress) and firewall-scoped to $remoteScope ($Scope)."
