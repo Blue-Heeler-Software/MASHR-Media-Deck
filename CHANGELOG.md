@@ -10,6 +10,10 @@ All notable MASHR Media Deck changes are recorded here.
 - Made the extension boundary explicit: the complete core deck is extension-free; only the optional related-video grid uses the helper.
 - Updated press copy and social artwork around the extension-free core experience.
 
+### Changed
+
+- Reduced the outer deck gutter, card inset, and control-row spacing so the Pixel 7 layout uses more of the available screen width while retaining safe rounded edges.
+
 ## 1.4.0 — 2026-07-17
 
 ### Added

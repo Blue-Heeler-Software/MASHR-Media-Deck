@@ -40,7 +40,7 @@ Every screen below is a real Pixel 7 capture from the extension-free core.
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/pixel7-youtube-scenes.png" alt="YouTube artwork, progress, and ten chapter markers on MASHR Media Deck"><br>
+      <img src="docs/images/pixel7-youtube-scenes.png" alt="YouTube artwork, progress, and creator chapter markers on MASHR Media Deck"><br>
       <strong>YouTube, already understood.</strong><br>
       Artwork, title, creator, live time, and creator chapters appear without a browser add-on.
     </td>
