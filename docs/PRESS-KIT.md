@@ -50,7 +50,7 @@ The core deck needs no browser extension. YouTube artwork, metadata, live progre
 
 ![YouTube chapters on the main deck](images/pixel7-youtube-scenes.png)
 
-**Caption:** MASHR finds artwork, live time, and ten creator chapters from the selected YouTube session without a browser extension.
+**Caption:** MASHR finds artwork, live time, and creator chapters from the selected YouTube session without a browser extension.
 
 ### Scene picker
 

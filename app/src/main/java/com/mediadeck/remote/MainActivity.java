@@ -90,7 +90,7 @@ public final class MainActivity extends Activity {
         LinearLayout root=new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
-        final int side=dp(16),top=dp(10),bottom=dp(14);
+        final int side=dp(6),top=dp(10),bottom=dp(14);
         root.setPadding(side,top,side,bottom);
         root.setOnApplyWindowInsetsListener((v,insets)->{
             int insetTop,insetBottom;
@@ -124,7 +124,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout card=new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(14),dp(9),dp(14),dp(9));
+        card.setPadding(dp(8),dp(9),dp(8),dp(9));
         card.setBackground(round(CARD,22));
         artwork=new ImageView(this);
         artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -228,7 +228,7 @@ public final class MainActivity extends Activity {
         moveScreen.setContentDescription("Move the selected PC media window to the next monitor");
         moveScreen.setOnClickListener(v->moveScreen());
         LinearLayout.LayoutParams moveLp=new LinearLayout.LayoutParams(-1,dp(46));
-        moveLp.setMargins(dp(3),dp(5),dp(3),0);
+        moveLp.setMargins(dp(2),dp(5),dp(2),0);
         card.addView(moveScreen,moveLp);
 
         altTab=largeAction("HOLD ALT + TAB  /  TAP PREV OR NEXT","alttab",13);
@@ -240,12 +240,12 @@ public final class MainActivity extends Activity {
             return true;
         });
         LinearLayout.LayoutParams altLp=new LinearLayout.LayoutParams(-1,dp(52));
-        altLp.setMargins(dp(3),dp(5),dp(3),0);
+        altLp.setMargins(dp(2),dp(5),dp(2),0);
         card.addView(altTab,altLp);
 
         replay=new SwipeReplayView(this::handleReplayGesture);
         LinearLayout.LayoutParams replayLp=new LinearLayout.LayoutParams(-1,dp(56));
-        replayLp.setMargins(dp(3),dp(5),dp(3),0);
+        replayLp.setMargins(dp(2),dp(5),dp(2),0);
         card.addView(replay,replayLp);
         root.addView(card);
         setContentView(root);
@@ -614,7 +614,7 @@ public final class MainActivity extends Activity {
     private String url(String path){return "http://"+base+":43821"+path;}
     private Button action(String label,String command){Button button=button(label);button.setOnClickListener(v->control(command));return button;}
     private Button largeAction(String label,String command,int size){Button button=action(label,command);button.setTextSize(size);button.setSingleLine(true);button.setPadding(dp(4),0,dp(4),0);return button;}
-    private void addWeighted(LinearLayout row,View view){LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,-1,1);params.setMargins(dp(3),0,dp(3),0);row.addView(view,params);}
+    private void addWeighted(LinearLayout row,View view){LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,-1,1);params.setMargins(dp(2),0,dp(2),0);row.addView(view,params);}
     private String formatTime(long millis){long total=Math.max(0,millis/1000),hours=total/3600,minutes=(total%3600)/60,seconds=total%60;return hours>0?String.format(Locale.US,"%d:%02d:%02d",hours,minutes,seconds):String.format(Locale.US,"%d:%02d",minutes,seconds);}
     private String friendlySource(String value){String lower=value.toLowerCase(Locale.US);if(lower.contains("vlc"))return "VLC / PC";if(lower.contains("brave"))return "BRAVE / PC";if(lower.contains("chrome"))return "CHROME / PC";if(lower.contains("spotify"))return "SPOTIFY / PC";return "PC MEDIA";}
     private TextView text(String value,int size,int color,boolean bold){TextView view=new TextView(this);view.setText(value);view.setTextSize(size);view.setTextColor(color);view.setTypeface(Typeface.DEFAULT,bold?Typeface.BOLD:Typeface.NORMAL);view.setLineSpacing(0,1.1f);return view;}

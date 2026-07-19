@@ -4,7 +4,7 @@ These are real Pixel 7 captures. YouTube artwork, live progress, chapter markers
 
 ## Extension-free YouTube deck
 
-![YouTube artwork, progress, and ten chapter markers](images/pixel7-youtube-scenes.png)
+![YouTube artwork, progress, and creator chapter markers](images/pixel7-youtube-scenes.png)
 
 The companion identifies the selected YouTube watch page and turns creator timestamps into cyan progress markers. No browser extension, YouTube login, or cloud service is involved.
 
