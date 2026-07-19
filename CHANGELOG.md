@@ -13,6 +13,7 @@ All notable MASHR Media Deck changes are recorded here.
 ### Changed
 
 - Reduced the outer deck gutter, card inset, and control-row spacing so the Pixel 7 layout uses more of the available screen width while retaining safe rounded edges.
+- Extended the control stack toward the Pixel navigation area, made Mute narrower, and gave both volume controls more width, height, and label emphasis.
 
 ## 1.4.0 — 2026-07-17
 

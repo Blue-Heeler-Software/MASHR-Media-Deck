@@ -193,22 +193,22 @@ public final class MainActivity extends Activity {
         next=largeAction("NEXT  >","next",14);
         next.setOnClickListener(v->{if(altHeld)sendKeyCommand("arrowright");else control("next");});
         addWeighted(transport,next);
-        card.addView(transport,new LinearLayout.LayoutParams(-1,dp(60)));
+        card.addView(transport,new LinearLayout.LayoutParams(-1,dp(64)));
 
         LinearLayout seekRow=new LinearLayout(this);
         seekRow.setGravity(Gravity.CENTER);
         seekRow.setPadding(0,dp(5),0,0);
         addWeighted(seekRow,largeAction("-10 SEC","back10",12));
         addWeighted(seekRow,largeAction("+10 SEC","forward10",12));
-        card.addView(seekRow,new LinearLayout.LayoutParams(-1,dp(40)));
+        card.addView(seekRow,new LinearLayout.LayoutParams(-1,dp(44)));
 
         LinearLayout volumeRow=new LinearLayout(this);
         volumeRow.setGravity(Gravity.CENTER);
-        volumeRow.setPadding(0,dp(7),0,0);
-        addWeighted(volumeRow,largeAction("MUTE","mute",13));
-        addWeighted(volumeRow,largeAction("VOL  -","volumedown",13));
-        addWeighted(volumeRow,largeAction("VOL  +","volumeup",13));
-        card.addView(volumeRow,new LinearLayout.LayoutParams(-1,dp(50)));
+        volumeRow.setPadding(0,dp(5),0,0);
+        addWeighted(volumeRow,largeAction("MUTE","mute",12),.75f);
+        addWeighted(volumeRow,largeAction("VOL  -","volumedown",14),1.125f);
+        addWeighted(volumeRow,largeAction("VOL  +","volumeup",14),1.125f);
+        card.addView(volumeRow,new LinearLayout.LayoutParams(-1,dp(60)));
 
         LinearLayout modeRow=new LinearLayout(this);
         modeRow.setGravity(Gravity.CENTER);
@@ -220,14 +220,14 @@ public final class MainActivity extends Activity {
         Button stop=largeAction("STOP","stop",13);
         stop.setTextColor(Color.rgb(254,202,202));
         addWeighted(modeRow,stop);
-        card.addView(modeRow,new LinearLayout.LayoutParams(-1,dp(50)));
+        card.addView(modeRow,new LinearLayout.LayoutParams(-1,dp(54)));
 
         Button moveScreen=largeAction("MOVE MEDIA TO NEXT SCREEN  >","movescreen",13);
         moveScreen.setTextColor(Color.BLACK);
         moveScreen.setBackground(round(Color.rgb(125,211,252),20));
         moveScreen.setContentDescription("Move the selected PC media window to the next monitor");
         moveScreen.setOnClickListener(v->moveScreen());
-        LinearLayout.LayoutParams moveLp=new LinearLayout.LayoutParams(-1,dp(46));
+        LinearLayout.LayoutParams moveLp=new LinearLayout.LayoutParams(-1,dp(52));
         moveLp.setMargins(dp(2),dp(5),dp(2),0);
         card.addView(moveScreen,moveLp);
 
@@ -239,12 +239,12 @@ public final class MainActivity extends Activity {
             if(event.getActionMasked()==MotionEvent.ACTION_UP||event.getActionMasked()==MotionEvent.ACTION_CANCEL){v.getParent().requestDisallowInterceptTouchEvent(false);endAltGesture();return true;}
             return true;
         });
-        LinearLayout.LayoutParams altLp=new LinearLayout.LayoutParams(-1,dp(52));
+        LinearLayout.LayoutParams altLp=new LinearLayout.LayoutParams(-1,dp(58));
         altLp.setMargins(dp(2),dp(5),dp(2),0);
         card.addView(altTab,altLp);
 
         replay=new SwipeReplayView(this::handleReplayGesture);
-        LinearLayout.LayoutParams replayLp=new LinearLayout.LayoutParams(-1,dp(56));
+        LinearLayout.LayoutParams replayLp=new LinearLayout.LayoutParams(-1,dp(62));
         replayLp.setMargins(dp(2),dp(5),dp(2),0);
         card.addView(replay,replayLp);
         root.addView(card);
@@ -614,7 +614,8 @@ public final class MainActivity extends Activity {
     private String url(String path){return "http://"+base+":43821"+path;}
     private Button action(String label,String command){Button button=button(label);button.setOnClickListener(v->control(command));return button;}
     private Button largeAction(String label,String command,int size){Button button=action(label,command);button.setTextSize(size);button.setSingleLine(true);button.setPadding(dp(4),0,dp(4),0);return button;}
-    private void addWeighted(LinearLayout row,View view){LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,-1,1);params.setMargins(dp(2),0,dp(2),0);row.addView(view,params);}
+    private void addWeighted(LinearLayout row,View view){addWeighted(row,view,1f);}
+    private void addWeighted(LinearLayout row,View view,float weight){LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,-1,weight);params.setMargins(dp(2),0,dp(2),0);row.addView(view,params);}
     private String formatTime(long millis){long total=Math.max(0,millis/1000),hours=total/3600,minutes=(total%3600)/60,seconds=total%60;return hours>0?String.format(Locale.US,"%d:%02d:%02d",hours,minutes,seconds):String.format(Locale.US,"%d:%02d",minutes,seconds);}
     private String friendlySource(String value){String lower=value.toLowerCase(Locale.US);if(lower.contains("vlc"))return "VLC / PC";if(lower.contains("brave"))return "BRAVE / PC";if(lower.contains("chrome"))return "CHROME / PC";if(lower.contains("spotify"))return "SPOTIFY / PC";return "PC MEDIA";}
     private TextView text(String value,int size,int color,boolean bold){TextView view=new TextView(this);view.setText(value);view.setTextSize(size);view.setTextColor(color);view.setTypeface(Typeface.DEFAULT,bold?Typeface.BOLD:Typeface.NORMAL);view.setLineSpacing(0,1.1f);return view;}
