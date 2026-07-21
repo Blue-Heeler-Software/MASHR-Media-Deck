@@ -16,7 +16,7 @@ MASHR Media Deck is a second-screen Android remote built for PC gamers who do no
 
 ## No extension needed
 
-**Everything in the core deck works with the Android app and Windows companion alone.** That includes YouTube artwork and metadata, live progress, chapter markers, the tappable **SCENES** list, transport and volume controls, monitor switching, held Alt+Tab, NVIDIA replay, local pairing, and automatic reconnect.
+**Everything in the core deck works with the Android app and Windows companion alone.** That includes YouTube artwork and metadata, live progress, chapter markers, the tappable **SCENES** list, Like/Dislike/Subscribe, transport and volume controls, monitor switching, held Alt+Tab, NVIDIA replay, local pairing, and automatic reconnect.
 
 The browser helper is not required for any control shown above. It exists for one separate, optional extra: the 3×3 related-video grid. Ignore or delete `browser-extension` and the main experience is unchanged.
 
@@ -25,6 +25,7 @@ The browser helper is not required for any control shown above. It exists for on
 - Large play/pause, previous/next, volume, mute, shuffle, repeat, stop, and ±10-second controls.
 - Live artwork, title, artist, elapsed time, remaining time, and continuously updating progress.
 - Tappable YouTube creator chapters as progress markers and a **SCENES** list—no extension required.
+- Extension-free YouTube **LIKE**, **DISLIKE**, and **SUB** controls through the selected browser window's Windows accessibility surface.
 - Guarded NVIDIA Instant Replay slider that shows whether the buffer is off, arms it explicitly, and saves with NVIDIA's configured hotkey.
 - Hold-to-use Alt+Tab: keep the yellow control held and use **PREV/NEXT** as window-switcher arrows.
 - Move the selected media window to the next monitor without stealing focus.
@@ -39,6 +40,13 @@ See the [screenshot gallery](docs/SCREENSHOTS.md) and [press kit](docs/PRESS-KIT
 Every screen below is a real Pixel 7 capture from the extension-free core.
 
 <table>
+  <tr>
+    <td colspan="2" valign="top">
+      <img src="docs/images/pixel7-youtube-actions.png" alt="MASHR Media Deck with large Like, Dislike, Subscribe, and compact held Alt Tab controls"><br>
+      <strong>React without surfacing the browser.</strong><br>
+      Like, Dislike, and Subscribe sit beside a much smaller multitouch Alt+Tab control; all four work through the authenticated companion without an extension.
+    </td>
+  </tr>
   <tr>
     <td width="50%" valign="top">
       <img src="docs/images/pixel7-youtube-scenes.png" alt="YouTube artwork, progress, and creator chapter markers on MASHR Media Deck"><br>
@@ -85,6 +93,7 @@ MASHR Media Deck is not a general remote-desktop app. It exposes a small allowli
 | --- | --- |
 | A track is too loud | Tap **VOL −** or **MUTE** |
 | A video drifts into filler | Tap **+10 SEC** or a chapter marker |
+| A video earns a reaction | Tap **LIKE**, **DISLIKE**, or **SUB** |
 | The media window is on the wrong display | Tap **MOVE MEDIA TO NEXT SCREEN** |
 | Something worth clipping just happened | Swipe the guarded replay control |
 | A different PC window is needed | Hold **ALT + TAB**, then tap **PREV/NEXT** |
@@ -98,6 +107,7 @@ The phone needs no Google login, YouTube account access, Android media permissio
 - Successful pairing closes the code; resetting pairing rotates the 256-bit key.
 - Recommended LAN mode binds to one PC interface and accepts only the paired phone IP.
 - Control commands are fixed and allowlisted—there is no shell, arbitrary URL, file upload, process ID, window handle, or coordinate endpoint.
+- YouTube actions target only named accessibility controls in the selected YouTube browser window; the phone cannot send arbitrary clicks or keys.
 - Browser-helper traffic is loopback-only.
 - YouTube chapters use the public page for the exact selected watch URL and send no browser cookies.
 
@@ -145,11 +155,11 @@ This keeps the existing Windows private/public network profile unchanged, disabl
 
 The stable executable, Android package, scheduled-task name, discovery token, HMAC headers, and pairing-storage path retain their original `MediaDeck` identifiers so existing installs upgrade without losing pairing or restart behavior.
 
-## YouTube scenes
+## YouTube scenes and actions
 
 **No extension is used for this.**
 
-For Brave, Chrome, and Edge, the companion reads the address bar of the unambiguous selected media window through Windows UI Automation. When it is an exact YouTube watch URL, creator-published description timestamps become progress markers. Tap **SCENES** between elapsed and remaining time to jump to a chapter.
+For Brave, Chrome, and Edge, the companion reads the address bar of the unambiguous selected media window through Windows UI Automation. When it is an exact YouTube watch URL, creator-published description timestamps become progress markers. Tap **SCENES** between elapsed and remaining time to jump to a chapter. The same extension-free accessibility surface activates only the visible, named Like, Dislike, or Subscribe control; Subscribe never doubles as an unsubscribe action.
 
 ## Optional extra: related-video grid
 

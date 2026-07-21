@@ -17,6 +17,7 @@ All notable MASHR Media Deck changes are recorded here.
 - Added a dedicated screenshot button that uses NVIDIA Overlay's configured shortcut when available and falls back to Windows' saved-screenshot shortcut.
 - Reserved a consistent two-line title area so short VLC titles no longer make the deck collapse vertically.
 - Matched the Screenshot button to Mute's width and moved its label onto two clear lines.
+- Replaced the full-width Alt+Tab bar with a compact multitouch control beside extension-free YouTube Like, Dislike, and Subscribe actions.
 
 ## 1.4.0 — 2026-07-17
 

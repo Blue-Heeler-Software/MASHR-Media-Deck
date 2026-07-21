@@ -288,6 +288,16 @@ app.MapPost("/api/control/{command}", async (string command) =>
         return Results.Ok();
     }
     var session = await Session();
+    if (command is "like" or "dislike" or "subscribe")
+    {
+        if (preferVlc || session is null)
+            return Results.Json(new { error = "Select a YouTube or YouTube Music session first." }, statusCode: StatusCodes.Status409Conflict);
+        var media = await session.TryGetMediaPropertiesAsync();
+        var result = YouTubeActions.Invoke(session.SourceAppUserModelId, media.Title, command);
+        return result.Success
+            ? Results.Json(new { action = result.Action, message = result.Message })
+            : Results.Json(new { error = result.Message }, statusCode: StatusCodes.Status409Conflict);
+    }
     if (command == "movescreen")
     {
         WindowMoveResult move;
@@ -803,6 +813,164 @@ static class BrowserYouTube
         }
         return false;
     }
+
+    private static string? ProcessName(string source)
+    {
+        if (source.Contains("Brave", StringComparison.OrdinalIgnoreCase)) return "brave";
+        if (source.Contains("Chrome", StringComparison.OrdinalIgnoreCase)) return "chrome";
+        if (source.Contains("Edge", StringComparison.OrdinalIgnoreCase)) return "msedge";
+        return null;
+    }
+}
+
+sealed record YouTubeActionResult(bool Success, string Action, string Message)
+{
+    public static YouTubeActionResult Failed(string message) => new(false, "", message);
+}
+
+static class YouTubeActions
+{
+    public static YouTubeActionResult Invoke(string source, string mediaTitle, string action)
+    {
+        if (action is not ("like" or "dislike" or "subscribe"))
+            return YouTubeActionResult.Failed("That YouTube action is not allowed.");
+        var processName = ProcessName(source);
+        if (processName is null)
+            return YouTubeActionResult.Failed("The selected player is not a supported YouTube browser session.");
+
+        var processes = Process.GetProcessesByName(processName);
+        try
+        {
+            var windows = processes
+                .Select(process =>
+                {
+                    try { process.Refresh(); return (Window: process.MainWindowHandle, Title: process.MainWindowTitle); }
+                    catch { return (Window: IntPtr.Zero, Title: ""); }
+                })
+                .Where(item => item.Window != IntPtr.Zero)
+                .ToArray();
+            var matches = windows
+                .Where(item => !string.IsNullOrWhiteSpace(mediaTitle) && item.Title.Contains(mediaTitle, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            var selected = matches.Length == 1 ? matches[0] : windows.Length == 1 ? windows[0] : default;
+            if (selected.Window == IntPtr.Zero)
+                return YouTubeActionResult.Failed("More than one browser window is open; show the intended YouTube tab once and try again.");
+
+            var root = AutomationElement.FromHandle(selected.Window);
+            if (root is null) return YouTubeActionResult.Failed("Windows could not inspect the selected browser window.");
+            if (!TryReadAddress(root, out var address) || !Uri.TryCreate(address, UriKind.Absolute, out var uri) || !IsYouTube(uri))
+                return YouTubeActionResult.Failed("The selected browser window is not on YouTube.");
+            var music = uri.Host.Equals("music.youtube.com", StringComparison.OrdinalIgnoreCase);
+            if (action == "subscribe" && music)
+                return YouTubeActionResult.Failed("Subscribe is not exposed by YouTube Music; open the video on YouTube to subscribe.");
+
+            var buttons = root.FindAll(
+                TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button));
+            AutomationElement? target = null;
+            var alreadySubscribed = false;
+            foreach (AutomationElement button in buttons)
+            {
+                try
+                {
+                    if (!button.Current.IsEnabled || button.Current.IsOffscreen) continue;
+                    var name = button.Current.Name?.Trim() ?? "";
+                    if (action == "subscribe" && IsSubscribedLabel(name)) alreadySubscribed = true;
+                    if (Matches(name, action, music)) { target = button; break; }
+                }
+                catch (ElementNotAvailableException) { }
+            }
+            if (target is null)
+            {
+                if (action == "subscribe" && alreadySubscribed)
+                    return new(true, "already-subscribed", "Already subscribed to this YouTube channel");
+                return YouTubeActionResult.Failed($"The visible YouTube {DisplayName(action)} button was not found.");
+            }
+
+            try
+            {
+                if (target.TryGetCurrentPattern(TogglePattern.Pattern, out var toggleObject) && toggleObject is TogglePattern toggle)
+                {
+                    var removing = toggle.Current.ToggleState == ToggleState.On;
+                    toggle.Toggle();
+                    var message = action switch
+                    {
+                        "like" => removing ? "YouTube Like removed" : "Liked on YouTube",
+                        "dislike" => removing ? "YouTube Dislike removed" : "Disliked on YouTube",
+                        _ => "Subscribed on YouTube"
+                    };
+                    return new(true, removing ? $"{action}-removed" : action, message);
+                }
+                if (target.TryGetCurrentPattern(InvokePattern.Pattern, out var invokeObject) && invokeObject is InvokePattern invoke)
+                {
+                    invoke.Invoke();
+                    return new(true, action, action == "subscribe" ? "Subscribed on YouTube" : $"YouTube {DisplayName(action)} toggled");
+                }
+                return YouTubeActionResult.Failed($"YouTube's {DisplayName(action)} control is visible but Windows cannot activate it.");
+            }
+            catch (ElementNotAvailableException) { return YouTubeActionResult.Failed("The YouTube page changed while the action was being sent; try again."); }
+            catch (InvalidOperationException) { return YouTubeActionResult.Failed($"Windows could not activate YouTube's {DisplayName(action)} control."); }
+        }
+        catch (COMException)
+        {
+            return YouTubeActionResult.Failed("Windows accessibility could not inspect the selected YouTube window; show it once and try again.");
+        }
+        catch (InvalidOperationException)
+        {
+            return YouTubeActionResult.Failed("The selected YouTube window changed while the action was being sent; try again.");
+        }
+        finally
+        {
+            foreach (var process in processes) process.Dispose();
+        }
+    }
+
+    private static bool TryReadAddress(AutomationElement root, out string address)
+    {
+        address = "";
+        var addressBar = root.FindFirst(
+            TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "view_1012"));
+        if (addressBar is null) return false;
+        try
+        {
+            if (addressBar.GetCurrentPattern(ValuePattern.Pattern) is not ValuePattern value) return false;
+            address = value.Current.Value;
+            if (!address.Contains("://", StringComparison.Ordinal)) address = "https://" + address;
+            return true;
+        }
+        catch (ElementNotAvailableException) { return false; }
+        catch (InvalidOperationException) { return false; }
+    }
+
+    private static bool IsYouTube(Uri uri) =>
+        uri.Host.Equals("youtube.com", StringComparison.OrdinalIgnoreCase) ||
+        uri.Host.EndsWith(".youtube.com", StringComparison.OrdinalIgnoreCase);
+
+    private static bool Matches(string label, string action, bool music) => action switch
+    {
+        "like" => music
+            ? label.Equals("Like", StringComparison.OrdinalIgnoreCase)
+            : label.StartsWith("like this video", StringComparison.OrdinalIgnoreCase),
+        "dislike" => music
+            ? label.Equals("Dislike", StringComparison.OrdinalIgnoreCase)
+            : label.StartsWith("dislike this video", StringComparison.OrdinalIgnoreCase),
+        "subscribe" => label.Equals("Subscribe", StringComparison.OrdinalIgnoreCase) ||
+            label.StartsWith("Subscribe to ", StringComparison.OrdinalIgnoreCase),
+        _ => false
+    };
+
+    private static bool IsSubscribedLabel(string label) =>
+        label.Equals("Subscribed", StringComparison.OrdinalIgnoreCase) ||
+        label.Equals("Unsubscribe", StringComparison.OrdinalIgnoreCase) ||
+        label.StartsWith("Unsubscribe from ", StringComparison.OrdinalIgnoreCase);
+
+    private static string DisplayName(string action) => action switch
+    {
+        "like" => "Like",
+        "dislike" => "Dislike",
+        _ => "Subscribe"
+    };
 
     private static string? ProcessName(string source)
     {

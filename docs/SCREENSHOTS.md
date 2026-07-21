@@ -1,12 +1,18 @@
 # MASHR Media Deck screenshots
 
-These are real Pixel 7 captures. YouTube artwork, live progress, chapter markers, the scene picker, playback controls, monitor switching, Alt+Tab, replay, and local pairing all work without a browser extension.
+These are real Pixel 7 captures. YouTube artwork, live progress, chapter markers, reactions, subscription, the scene picker, playback controls, monitor switching, Alt+Tab, replay, and local pairing all work without a browser extension.
 
 ## Extension-free YouTube deck
 
 ![YouTube artwork, progress, and creator chapter markers](images/pixel7-youtube-scenes.png)
 
 The companion identifies the selected YouTube watch page and turns creator timestamps into cyan progress markers. No browser extension, YouTube login, or cloud service is involved.
+
+## YouTube actions and compact Alt+Tab
+
+![Large Like, Dislike, Subscribe, and compact Alt Tab controls](images/pixel7-youtube-actions.png)
+
+The selected YouTube page exposes its named controls through Windows accessibility. MASHR activates only the allowlisted **LIKE**, **DISLIKE**, and **SUB** actions; the smaller yellow control retains held multitouch Alt+Tab with **PREV/NEXT**.
 
 ## Tappable scene list
 
