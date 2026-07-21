@@ -28,6 +28,7 @@ The browser helper is not required for any control shown above. It exists for on
 - Guarded NVIDIA Instant Replay slider that shows whether the buffer is off, arms it explicitly, and saves with NVIDIA's configured hotkey.
 - Hold-to-use Alt+Tab: keep the yellow control held and use **PREV/NEXT** as window-switcher arrows.
 - Move the selected media window to the next monitor without stealing focus.
+- Save a PC screenshot using NVIDIA Overlay's configured shortcut, with a Windows fallback.
 - Automatic reconnect through a background Windows tray companion.
 - Optional 3×3 related-video grid from a narrowly scoped helper—the only feature that uses it.
 
@@ -64,9 +65,9 @@ Every screen below is a real Pixel 7 capture from the extension-free core.
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/pixel7-now-playing.png" alt="MASHR Media Deck controlling another Windows media session"><br>
-      <strong>Not just YouTube.</strong><br>
-      Compatible Windows media sessions bring their artwork, timeline, and controls with them.
+      <img src="docs/images/pixel7-screenshot-button.png" alt="MASHR Media Deck screenshot and media-window buttons while controlling VLC"><br>
+      <strong>Capture without leaving the game.</strong><br>
+      The dedicated button uses NVIDIA's configured Screenshot shortcut, with a Windows fallback—and the same deck works with VLC.
     </td>
     <td width="50%" valign="top">
       <img src="docs/images/pixel7-local-pairing.png" alt="Local one-time pairing screen with no YouTube login"><br>

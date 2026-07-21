@@ -41,6 +41,7 @@ The core deck needs no browser extension. YouTube artwork, metadata, live progre
 - Guarded arm/save flow for NVIDIA Instant Replay.
 - Hold-to-use Alt+Tab window switching.
 - Focus-preserving media-window monitor cycling.
+- One-tap PC screenshots through the configured NVIDIA shortcut or Windows fallback.
 - One-phone LAN restriction and signed requests.
 - No cloud account, analytics, advertising, or media login.
 
@@ -75,6 +76,12 @@ The core deck needs no browser extension. YouTube artwork, metadata, live progre
 ![Local phone-to-PC pairing](images/pixel7-local-pairing.png)
 
 **Caption:** The phone pairs directly with the PC companion—no YouTube, Google, or cloud account.
+
+### Screenshot button
+
+![Dedicated screenshot button while controlling VLC](images/pixel7-screenshot-button.png)
+
+**Caption:** Capture the PC through NVIDIA's configured shortcut without leaving the game; Windows provides the fallback.
 
 ### Main deck
 

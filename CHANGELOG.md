@@ -14,6 +14,8 @@ All notable MASHR Media Deck changes are recorded here.
 
 - Reduced the outer deck gutter, card inset, and control-row spacing so the Pixel 7 layout uses more of the available screen width while retaining safe rounded edges.
 - Extended the control stack toward the Pixel navigation area, made Mute narrower, and gave both volume controls more width, height, and label emphasis.
+- Added a dedicated screenshot button that uses NVIDIA Overlay's configured shortcut when available and falls back to Windows' saved-screenshot shortcut.
+- Reserved a consistent two-line title area so short VLC titles no longer make the deck collapse vertically.
 
 ## 1.4.0 — 2026-07-17
 
