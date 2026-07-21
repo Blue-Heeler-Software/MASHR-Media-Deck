@@ -252,6 +252,17 @@ app.MapPost("/api/seek", async (long positionMs) =>
 app.MapPost("/api/control/{command}", async (string command) =>
 {
     if (command == "alttab") { MediaKeys.AltTab(); return Results.Ok(); }
+    if (command == "screenshot")
+    {
+        var screenshotKeys = NvidiaReplayState.Read().ScreenshotKeys;
+        if (screenshotKeys.Length > 0)
+        {
+            MediaKeys.Hotkey(screenshotKeys);
+            return Results.Json(new { action = "captured", provider = "NVIDIA Overlay" });
+        }
+        MediaKeys.Hotkey([0x5B, 0x2C]);
+        return Results.Json(new { action = "captured", provider = "Windows" });
+    }
     if (command == "instantreplay")
     {
         var replay = NvidiaReplayState.Read();
@@ -578,9 +589,9 @@ sealed class YouTubeBridge
 
 sealed record MediaChapter(long PositionMs, string Title);
 
-sealed record NvidiaReplaySnapshot(bool Available, bool Enabled, int BufferSeconds, int[] SaveKeys, int[] ToggleKeys)
+sealed record NvidiaReplaySnapshot(bool Available, bool Enabled, int BufferSeconds, int[] SaveKeys, int[] ToggleKeys, int[] ScreenshotKeys)
 {
-    public static NvidiaReplaySnapshot Unavailable { get; } = new(false, false, 120, [], []);
+    public static NvidiaReplaySnapshot Unavailable { get; } = new(false, false, 120, [], [], []);
 }
 
 static class NvidiaReplayState
@@ -602,13 +613,14 @@ static class NvidiaReplayState
                 var shortcuts = settings.GetProperty("shortcuts");
                 var saveKeys = ReadShortcut(shortcuts, "DVRSave");
                 var toggleKeys = ReadShortcut(shortcuts, "DVRToggle");
+                var screenshotKeys = ReadShortcut(shortcuts, "Screenshot");
                 if (saveKeys.Length == 0 || toggleKeys.Length == 0) return lastGood;
                 var video = settings.GetProperty("video");
                 var enabled = video.TryGetProperty("irEnabled", out var enabledNode) && enabledNode.ValueKind == JsonValueKind.True;
                 var seconds = video.TryGetProperty("irBufferLength", out var secondsNode) && secondsNode.TryGetInt32(out var value)
                     ? Math.Clamp(value, 15, 1200)
                     : 120;
-                lastGood = new(true, enabled, seconds, saveKeys, toggleKeys);
+                lastGood = new(true, enabled, seconds, saveKeys, toggleKeys, screenshotKeys);
                 return lastGood;
             }
             catch

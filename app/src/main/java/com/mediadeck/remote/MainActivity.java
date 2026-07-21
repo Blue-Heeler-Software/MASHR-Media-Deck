@@ -148,6 +148,7 @@ public final class MainActivity extends Activity {
         source.setPadding(0,dp(7),0,dp(2));
         card.addView(source);
         title=text("Waiting for PC media",22,INK,true);
+        title.setMinLines(2);
         title.setMaxLines(2);
         card.addView(title);
         artist=text("Start YouTube Music or another player on the PC",14,MUTED,false);
@@ -222,14 +223,22 @@ public final class MainActivity extends Activity {
         addWeighted(modeRow,stop);
         card.addView(modeRow,new LinearLayout.LayoutParams(-1,dp(54)));
 
-        Button moveScreen=largeAction("MOVE MEDIA TO NEXT SCREEN  >","movescreen",13);
+        LinearLayout utilityRow=new LinearLayout(this);
+        utilityRow.setGravity(Gravity.CENTER);
+        utilityRow.setPadding(0,dp(5),0,0);
+        Button screenshot=largeAction("SCREENSHOT","screenshot",13);
+        screenshot.setTextColor(Color.BLACK);
+        screenshot.setBackground(round(Color.rgb(196,181,253),20));
+        screenshot.setContentDescription("Save a screenshot of the PC using NVIDIA Overlay or Windows");
+        screenshot.setOnClickListener(v->takeScreenshot());
+        addWeighted(utilityRow,screenshot,.43f);
+        Button moveScreen=largeAction("MOVE MEDIA  >","movescreen",12);
         moveScreen.setTextColor(Color.BLACK);
         moveScreen.setBackground(round(Color.rgb(125,211,252),20));
         moveScreen.setContentDescription("Move the selected PC media window to the next monitor");
         moveScreen.setOnClickListener(v->moveScreen());
-        LinearLayout.LayoutParams moveLp=new LinearLayout.LayoutParams(-1,dp(52));
-        moveLp.setMargins(dp(2),dp(5),dp(2),0);
-        card.addView(moveScreen,moveLp);
+        addWeighted(utilityRow,moveScreen,.57f);
+        card.addView(utilityRow,new LinearLayout.LayoutParams(-1,dp(57)));
 
         altTab=largeAction("HOLD ALT + TAB  /  TAP PREV OR NEXT","alttab",13);
         altTab.setTextColor(Color.BLACK);
@@ -474,6 +483,7 @@ public final class MainActivity extends Activity {
     }
 
     private void control(String command){io.execute(()->{try{post("/api/control/"+command);}catch(Exception ignored){}ui.postDelayed(()->refresh(false),180);});}
+    private void takeScreenshot(){io.execute(()->{try{JSONObject captured=new JSONObject(post("/api/control/screenshot"));String provider=captured.optString("provider","PC");ui.post(()->Toast.makeText(this,"Screenshot saved by "+provider,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,"Screenshot failed: "+safeMessage(error),Toast.LENGTH_LONG).show());}});}
     private void moveScreen(){io.execute(()->{try{JSONObject moved=new JSONObject(post("/api/control/movescreen"));String display=moved.optString("display","next screen");ui.post(()->Toast.makeText(this,"Media moved to "+display,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,"Could not move media: "+safeMessage(error),Toast.LENGTH_LONG).show());}});}
     private void sendKeyCommand(String command){io.execute(()->{try{post("/api/control/"+command);}catch(Exception ignored){}});}
     private void beginAltGesture(){if(altHeld)return;altHeld=true;altTab.setText("ALT HELD  /  CHOOSE A WINDOW");altTab.setBackground(round(Color.rgb(248,113,113),20));previous.setText("<  WINDOW");next.setText("WINDOW  >");sendKeyCommand("altdown");}

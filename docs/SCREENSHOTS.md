@@ -32,6 +32,12 @@ The slider shows progress before crossing its activation threshold, making an ac
 
 The same portrait deck handles compatible Windows media sessions with artwork, metadata, a live timeline, and large controls.
 
+## Dedicated screenshot action
+
+![MASHR Media Deck screenshot button while controlling VLC](images/pixel7-screenshot-button.png)
+
+The lavender **SCREENSHOT** button invokes NVIDIA Overlay's configured Screenshot shortcut when available. A fixed Windows saved-screenshot shortcut is the fallback; the phone cannot supply arbitrary keys.
+
 ## Local pairing, not a media login
 
 ![Local MASHR Media Deck pairing screen](images/pixel7-local-pairing.png)
