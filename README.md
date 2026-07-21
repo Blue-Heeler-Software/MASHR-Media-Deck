@@ -16,7 +16,7 @@ MASHR Media Deck is a second-screen Android remote built for PC gamers who do no
 
 ## No extension needed
 
-**Everything in the core deck works with the Android app and Windows companion alone.** That includes YouTube artwork and metadata, live progress, chapter markers, the tappable **SCENES** list, Like/Dislike/Subscribe, transport and volume controls, monitor switching, held Alt+Tab, NVIDIA replay, local pairing, and automatic reconnect.
+**Everything in the core deck works with the Android app and Windows companion alone.** That includes YouTube artwork and metadata, live progress, chapter markers, the tappable **SCENES** list, Like/Dislike/Subscribe, actual YouTube player volume, transport and system-volume controls, monitor switching, held Alt+Tab, NVIDIA replay, local pairing, and automatic reconnect.
 
 The browser helper is not required for any control shown above. It exists for one separate, optional extra: the 3×3 related-video grid. Ignore or delete `browser-extension` and the main experience is unchanged.
 
@@ -26,6 +26,7 @@ The browser helper is not required for any control shown above. It exists for on
 - Live artwork, title, artist, elapsed time, remaining time, and continuously updating progress.
 - Tappable YouTube creator chapters as progress markers and a **SCENES** list—no extension required.
 - Extension-free YouTube **LIKE**, **DISLIKE**, and **SUB** controls through the selected browser window's Windows accessibility surface.
+- A compact **YT VOL** slider that reads and changes the selected YouTube player's own 0–100 volume without changing Windows master volume.
 - Guarded NVIDIA Instant Replay slider that shows whether the buffer is off, arms it explicitly, and saves with NVIDIA's configured hotkey.
 - Hold-to-use Alt+Tab: keep the yellow control held and use **PREV/NEXT** as window-switcher arrows.
 - Move the selected media window to the next monitor without stealing focus.
@@ -42,9 +43,9 @@ Every screen below is a real Pixel 7 capture from the extension-free core.
 <table>
   <tr>
     <td colspan="2" valign="top">
-      <img src="docs/images/pixel7-youtube-actions.png" alt="MASHR Media Deck with large Like, Dislike, Subscribe, and compact held Alt Tab controls"><br>
+      <img src="docs/images/pixel7-youtube-actions.png" alt="MASHR Media Deck with dominant Like, smaller Dislike, Subscribe, compact held Alt Tab, and YouTube volume controls"><br>
       <strong>React without surfacing the browser.</strong><br>
-      Like, Dislike, and Subscribe sit beside a much smaller multitouch Alt+Tab control; all four work through the authenticated companion without an extension.
+      The larger Like, smaller Dislike, Subscribe, compact multitouch Alt+Tab, and tiny actual-player volume slider work through the authenticated companion without an extension.
     </td>
   </tr>
   <tr>
@@ -94,6 +95,7 @@ MASHR Media Deck is not a general remote-desktop app. It exposes a small allowli
 | A track is too loud | Tap **VOL −** or **MUTE** |
 | A video drifts into filler | Tap **+10 SEC** or a chapter marker |
 | A video earns a reaction | Tap **LIKE**, **DISLIKE**, or **SUB** |
+| YouTube itself is too loud | Drag the tiny **YT VOL** slider |
 | The media window is on the wrong display | Tap **MOVE MEDIA TO NEXT SCREEN** |
 | Something worth clipping just happened | Swipe the guarded replay control |
 | A different PC window is needed | Hold **ALT + TAB**, then tap **PREV/NEXT** |
@@ -108,6 +110,7 @@ The phone needs no Google login, YouTube account access, Android media permissio
 - Recommended LAN mode binds to one PC interface and accepts only the paired phone IP.
 - Control commands are fixed and allowlisted—there is no shell, arbitrary URL, file upload, process ID, window handle, or coordinate endpoint.
 - YouTube actions target only named accessibility controls in the selected YouTube browser window; the phone cannot send arbitrary clicks or keys.
+- YouTube volume accepts only a 0–100 level; the companion derives the exact verified Volume slider and browser render host instead of accepting caller-provided coordinates or key codes.
 - Browser-helper traffic is loopback-only.
 - YouTube chapters use the public page for the exact selected watch URL and send no browser cookies.
 
@@ -159,7 +162,7 @@ The stable executable, Android package, scheduled-task name, discovery token, HM
 
 **No extension is used for this.**
 
-For Brave, Chrome, and Edge, the companion reads the address bar of the unambiguous selected media window through Windows UI Automation. When it is an exact YouTube watch URL, creator-published description timestamps become progress markers. Tap **SCENES** between elapsed and remaining time to jump to a chapter. The same extension-free accessibility surface activates only the visible, named Like, Dislike, or Subscribe control; Subscribe never doubles as an unsubscribe action.
+For Brave, Chrome, and Edge, the companion reads the address bar of the unambiguous selected media window through Windows UI Automation. When it is an exact YouTube watch URL, creator-published description timestamps become progress markers. Tap **SCENES** between elapsed and remaining time to jump to a chapter. The same extension-free accessibility surface activates only the visible, named Like, Dislike, Subscribe, or Volume control; Subscribe never doubles as an unsubscribe action. **YT VOL** changes the webpage player's own value while leaving Windows master volume and the physical cursor alone.
 
 ## Optional extra: related-video grid
 
