@@ -63,12 +63,13 @@ public final class MainActivity extends Activity {
     private final ExecutorService thumbnails=Executors.newFixedThreadPool(3);
     private final Runnable poll=()->refresh(false);
     private ImageView artwork;
-    private TextView source,title,artist,status,elapsed,remaining,scenes;
+    private TextView source,title,artist,status,elapsed,remaining,scenes,youtubeVolumeValue;
     private Button previous,play,next,shuffle,repeat,altTab;
     private ChapterSeekBar timeline;
+    private SeekBar youtubeVolume;
     private SwipeReplayView replay;
     private String base="",deviceKey="",lastTrack="";
-    private boolean running,requestPending,userSeeking,altHeld,youtubeAvailable,artworkPending,artworkLoaded,replayAvailable,replayEnabled;
+    private boolean running,requestPending,userSeeking,youtubeVolumeSeeking,altHeld,youtubeAvailable,artworkPending,artworkLoaded,replayAvailable,replayEnabled;
     private long durationMs,positionMs,lastArtworkAttemptMs;
     private int replaySeconds=120;
     private final ArrayList<MediaChapter> chapters=new ArrayList<>();
@@ -252,13 +253,13 @@ public final class MainActivity extends Activity {
         like.setBackground(round(Color.rgb(134,239,172),18));
         like.setContentDescription("Like or unlike the selected YouTube video");
         like.setOnClickListener(v->youtubeAction("like","Like"));
-        addWeighted(youtubeRow,like,.88f);
+        addWeighted(youtubeRow,like,1.15f);
         Button dislike=largeAction("DISLIKE","dislike",10);
         dislike.setTextColor(Color.BLACK);
         dislike.setBackground(round(Color.rgb(254,202,202),18));
         dislike.setContentDescription("Dislike or remove the dislike from the selected YouTube video");
         dislike.setOnClickListener(v->youtubeAction("dislike","Dislike"));
-        addWeighted(youtubeRow,dislike,1.08f);
+        addWeighted(youtubeRow,dislike,.86f);
         Button subscribe=largeAction("SUB","subscribe",11);
         subscribe.setTextColor(Color.BLACK);
         subscribe.setBackground(round(Color.rgb(248,113,113),18));
@@ -277,8 +278,32 @@ public final class MainActivity extends Activity {
             if(event.getActionMasked()==MotionEvent.ACTION_UP||event.getActionMasked()==MotionEvent.ACTION_CANCEL){v.getParent().requestDisallowInterceptTouchEvent(false);endAltGesture();return true;}
             return true;
         });
-        addWeighted(youtubeRow,altTab,1.24f);
-        card.addView(youtubeRow,new LinearLayout.LayoutParams(-1,dp(54)));
+        addWeighted(youtubeRow,altTab,1.16f);
+        card.addView(youtubeRow,new LinearLayout.LayoutParams(-1,dp(47)));
+
+        LinearLayout youtubeVolumeRow=new LinearLayout(this);
+        youtubeVolumeRow.setGravity(Gravity.CENTER_VERTICAL);
+        youtubeVolumeRow.setPadding(dp(5),dp(1),dp(5),0);
+        TextView youtubeVolumeLabel=text("YT VOL",9,Color.rgb(125,211,252),true);
+        youtubeVolumeLabel.setGravity(Gravity.CENTER_VERTICAL);
+        youtubeVolumeRow.addView(youtubeVolumeLabel,new LinearLayout.LayoutParams(dp(48),-1));
+        youtubeVolume=new SeekBar(this);
+        youtubeVolume.setMax(100);
+        youtubeVolume.setProgress(50);
+        youtubeVolume.setPadding(0,0,0,0);
+        youtubeVolume.setProgressTintList(android.content.res.ColorStateList.valueOf(Color.rgb(125,211,252)));
+        youtubeVolume.setThumbTintList(android.content.res.ColorStateList.valueOf(Color.rgb(125,211,252)));
+        youtubeVolume.setContentDescription("YouTube player volume");
+        youtubeVolume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar bar,int progress,boolean fromUser){if(fromUser)youtubeVolumeValue.setText(progress+"%");}
+            public void onStartTrackingTouch(SeekBar bar){youtubeVolumeSeeking=true;}
+            public void onStopTrackingTouch(SeekBar bar){youtubeVolumeSeeking=false;setYoutubeVolume(bar.getProgress());}
+        });
+        youtubeVolumeRow.addView(youtubeVolume,new LinearLayout.LayoutParams(0,-1,1));
+        youtubeVolumeValue=text("--",9,MUTED,true);
+        youtubeVolumeValue.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
+        youtubeVolumeRow.addView(youtubeVolumeValue,new LinearLayout.LayoutParams(dp(38),-1));
+        card.addView(youtubeVolumeRow,new LinearLayout.LayoutParams(-1,dp(23)));
 
         replay=new SwipeReplayView(this::handleReplayGesture);
         LinearLayout.LayoutParams replayLp=new LinearLayout.LayoutParams(-1,dp(62));
@@ -340,6 +365,10 @@ public final class MainActivity extends Activity {
         replayEnabled=data.optBoolean("instantReplayEnabled",false);
         replaySeconds=Math.max(15,data.optInt("instantReplaySeconds",120));
         replay.setReplayState(replayAvailable,replayEnabled,replaySeconds);
+        int playerVolume=data.optInt("youtubeVolume",-1);
+        youtubeVolume.setEnabled(playerVolume>=0);
+        youtubeVolume.setAlpha(playerVolume>=0?1f:.35f);
+        if(!youtubeVolumeSeeking){youtubeVolumeValue.setText(playerVolume>=0?playerVolume+"%":"--");if(playerVolume>=0)youtubeVolume.setProgress(playerVolume);}
         shuffle.setText(data.optBoolean("shuffle")?"SHUFFLE ON":"SHUFFLE");
         String repeatMode=data.optString("repeat","none");
         repeat.setText(repeatMode.equals("track")?"REPEAT 1":repeatMode.equals("list")?"REPEAT ALL":"REPEAT");
@@ -512,6 +541,7 @@ public final class MainActivity extends Activity {
 
     private void control(String command){io.execute(()->{try{post("/api/control/"+command);}catch(Exception ignored){}ui.postDelayed(()->refresh(false),180);});}
     private void youtubeAction(String command,String label){io.execute(()->{try{JSONObject result=new JSONObject(post("/api/control/"+command));String message=result.optString("message",label+" sent to YouTube");ui.post(()->Toast.makeText(this,message,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,label+" unavailable: "+apiError(error),Toast.LENGTH_LONG).show());}});}
+    private void setYoutubeVolume(int level){io.execute(()->{try{JSONObject result=new JSONObject(post("/api/youtube/volume?level="+level));int applied=result.optInt("volume",level);ui.post(()->youtubeVolumeValue.setText(applied+"%"));}catch(Exception error){ui.post(()->Toast.makeText(this,"YouTube volume unavailable: "+apiError(error),Toast.LENGTH_LONG).show());}});}
     private void takeScreenshot(){io.execute(()->{try{JSONObject captured=new JSONObject(post("/api/control/screenshot"));String provider=captured.optString("provider","PC");ui.post(()->Toast.makeText(this,"Screenshot saved by "+provider,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,"Screenshot failed: "+safeMessage(error),Toast.LENGTH_LONG).show());}});}
     private void moveScreen(){io.execute(()->{try{JSONObject moved=new JSONObject(post("/api/control/movescreen"));String display=moved.optString("display","next screen");ui.post(()->Toast.makeText(this,"Media moved to "+display,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,"Could not move media: "+safeMessage(error),Toast.LENGTH_LONG).show());}});}
     private void sendKeyCommand(String command){io.execute(()->{try{post("/api/control/"+command);}catch(Exception ignored){}});}

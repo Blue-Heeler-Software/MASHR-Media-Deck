@@ -18,6 +18,8 @@ Extension-free YouTube chapters use Windows UI Automation only to read the addre
 
 YouTube Like, Dislike, and Subscribe commands use the same unambiguous selected browser window and first verify an exact `youtube.com` host in its address bar. They can activate only visible, enabled accessibility buttons with tightly matched YouTube labels. The API accepts no coordinates, DOM selector, text, URL, or arbitrary click target from the phone. Subscribe is one-way: an already-subscribed channel reports its state instead of exposing Unsubscribe.
 
+YouTube volume accepts only an integer from 0 through 100. The companion locates the exact enabled accessibility slider named `Volume`, derives its Chromium render-host ancestor and current position locally, then sends only the fixed left/right adjustment needed to reach the requested level. The phone cannot provide a window handle, coordinate, key code, or arbitrary accessibility label; the physical cursor and Windows master volume are not changed.
+
 NVIDIA replay controls read the current user's local NVIDIA Overlay settings. Hotkeys are sourced from NVIDIA's `DVRSave` and `DVRToggle` arrays, limited to four valid virtual-key codes, and never supplied by the phone. The arm endpoint is one-way: if replay is already enabled it does not toggle it off.
 
 The monitor-switch command accepts no process ID, window handle, coordinates, or executable name from the phone. The companion derives an allowlisted player process from the authenticated Windows media session, requires an unambiguous top-level media window, and moves it without activation or Z-order changes.

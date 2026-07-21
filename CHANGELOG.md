@@ -18,6 +18,7 @@ All notable MASHR Media Deck changes are recorded here.
 - Reserved a consistent two-line title area so short VLC titles no longer make the deck collapse vertically.
 - Matched the Screenshot button to Mute's width and moved its label onto two clear lines.
 - Replaced the full-width Alt+Tab bar with a compact multitouch control beside extension-free YouTube Like, Dislike, and Subscribe actions.
+- Made Like larger than Dislike, compressed the YouTube action row, and added a tiny slider for the selected YouTube player's actual 0–100 volume.
 
 ## 1.4.0 — 2026-07-17
 

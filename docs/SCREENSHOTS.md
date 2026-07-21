@@ -10,9 +10,9 @@ The companion identifies the selected YouTube watch page and turns creator times
 
 ## YouTube actions and compact Alt+Tab
 
-![Large Like, Dislike, Subscribe, and compact Alt Tab controls](images/pixel7-youtube-actions.png)
+![Dominant Like, smaller Dislike, Subscribe, compact Alt Tab, and actual YouTube volume controls](images/pixel7-youtube-actions.png)
 
-The selected YouTube page exposes its named controls through Windows accessibility. MASHR activates only the allowlisted **LIKE**, **DISLIKE**, and **SUB** actions; the smaller yellow control retains held multitouch Alt+Tab with **PREV/NEXT**.
+The selected YouTube page exposes its named controls through Windows accessibility. MASHR makes **LIKE** larger than **DISLIKE**, keeps **SUB** and held multitouch Alt+Tab compact, and adds a tiny **YT VOL** slider for the webpage player's actual volume—not Windows master volume.
 
 ## Tappable scene list
 
