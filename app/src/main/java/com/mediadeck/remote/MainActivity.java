@@ -244,17 +244,41 @@ public final class MainActivity extends Activity {
         addWeighted(utilityRow,moveScreen,.7494f);
         card.addView(utilityRow,new LinearLayout.LayoutParams(-1,dp(57)));
 
-        altTab=largeAction("HOLD ALT + TAB  /  TAP PREV OR NEXT","alttab",13);
+        LinearLayout youtubeRow=new LinearLayout(this);
+        youtubeRow.setGravity(Gravity.CENTER);
+        youtubeRow.setPadding(0,dp(5),0,0);
+        Button like=largeAction("LIKE","like",11);
+        like.setTextColor(Color.BLACK);
+        like.setBackground(round(Color.rgb(134,239,172),18));
+        like.setContentDescription("Like or unlike the selected YouTube video");
+        like.setOnClickListener(v->youtubeAction("like","Like"));
+        addWeighted(youtubeRow,like,.88f);
+        Button dislike=largeAction("DISLIKE","dislike",10);
+        dislike.setTextColor(Color.BLACK);
+        dislike.setBackground(round(Color.rgb(254,202,202),18));
+        dislike.setContentDescription("Dislike or remove the dislike from the selected YouTube video");
+        dislike.setOnClickListener(v->youtubeAction("dislike","Dislike"));
+        addWeighted(youtubeRow,dislike,1.08f);
+        Button subscribe=largeAction("SUB","subscribe",11);
+        subscribe.setTextColor(Color.BLACK);
+        subscribe.setBackground(round(Color.rgb(248,113,113),18));
+        subscribe.setContentDescription("Subscribe to the selected YouTube channel");
+        subscribe.setOnClickListener(v->youtubeAction("subscribe","Subscribe"));
+        addWeighted(youtubeRow,subscribe,.72f);
+        altTab=largeAction("HOLD\nALT+TAB","alttab",10);
+        altTab.setSingleLine(false);
+        altTab.setLines(2);
+        altTab.setGravity(Gravity.CENTER);
         altTab.setTextColor(Color.BLACK);
         altTab.setBackground(round(Color.rgb(251,191,36),20));
+        altTab.setContentDescription("Hold Alt Tab, then tap Previous or Next with another finger to choose a PC window");
         altTab.setOnTouchListener((v,event)->{
             if(event.getActionMasked()==MotionEvent.ACTION_DOWN){v.getParent().requestDisallowInterceptTouchEvent(true);beginAltGesture();return true;}
             if(event.getActionMasked()==MotionEvent.ACTION_UP||event.getActionMasked()==MotionEvent.ACTION_CANCEL){v.getParent().requestDisallowInterceptTouchEvent(false);endAltGesture();return true;}
             return true;
         });
-        LinearLayout.LayoutParams altLp=new LinearLayout.LayoutParams(-1,dp(58));
-        altLp.setMargins(dp(2),dp(5),dp(2),0);
-        card.addView(altTab,altLp);
+        addWeighted(youtubeRow,altTab,1.24f);
+        card.addView(youtubeRow,new LinearLayout.LayoutParams(-1,dp(54)));
 
         replay=new SwipeReplayView(this::handleReplayGesture);
         LinearLayout.LayoutParams replayLp=new LinearLayout.LayoutParams(-1,dp(62));
@@ -487,11 +511,12 @@ public final class MainActivity extends Activity {
     }
 
     private void control(String command){io.execute(()->{try{post("/api/control/"+command);}catch(Exception ignored){}ui.postDelayed(()->refresh(false),180);});}
+    private void youtubeAction(String command,String label){io.execute(()->{try{JSONObject result=new JSONObject(post("/api/control/"+command));String message=result.optString("message",label+" sent to YouTube");ui.post(()->Toast.makeText(this,message,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,label+" unavailable: "+apiError(error),Toast.LENGTH_LONG).show());}});}
     private void takeScreenshot(){io.execute(()->{try{JSONObject captured=new JSONObject(post("/api/control/screenshot"));String provider=captured.optString("provider","PC");ui.post(()->Toast.makeText(this,"Screenshot saved by "+provider,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,"Screenshot failed: "+safeMessage(error),Toast.LENGTH_LONG).show());}});}
     private void moveScreen(){io.execute(()->{try{JSONObject moved=new JSONObject(post("/api/control/movescreen"));String display=moved.optString("display","next screen");ui.post(()->Toast.makeText(this,"Media moved to "+display,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,"Could not move media: "+safeMessage(error),Toast.LENGTH_LONG).show());}});}
     private void sendKeyCommand(String command){io.execute(()->{try{post("/api/control/"+command);}catch(Exception ignored){}});}
-    private void beginAltGesture(){if(altHeld)return;altHeld=true;altTab.setText("ALT HELD  /  CHOOSE A WINDOW");altTab.setBackground(round(Color.rgb(248,113,113),20));previous.setText("<  WINDOW");next.setText("WINDOW  >");sendKeyCommand("altdown");}
-    private void endAltGesture(){if(!altHeld)return;altHeld=false;sendKeyCommand("altup");altTab.setText("HOLD ALT + TAB  /  TAP PREV OR NEXT");altTab.setBackground(round(Color.rgb(251,191,36),20));previous.setText("<  PREV");next.setText("NEXT  >");}
+    private void beginAltGesture(){if(altHeld)return;altHeld=true;altTab.setText("ALT\nHELD");altTab.setBackground(round(Color.rgb(248,113,113),20));previous.setText("<  WINDOW");next.setText("WINDOW  >");sendKeyCommand("altdown");}
+    private void endAltGesture(){if(!altHeld)return;altHeld=false;sendKeyCommand("altup");altTab.setText("HOLD\nALT+TAB");altTab.setBackground(round(Color.rgb(251,191,36),20));previous.setText("<  PREV");next.setText("NEXT  >");}
     private void seekTo(long positionMs){io.execute(()->{try{post("/api/seek?positionMs="+positionMs);}catch(Exception ignored){}ui.postDelayed(()->refresh(false),180);});}
 
     private void openPcSettings(){
@@ -624,6 +649,7 @@ public final class MainActivity extends Activity {
     private void clearPairing(){deviceKey="";getPreferences(0).edit().remove("deviceKey").apply();}
     private boolean isUnauthorized(Exception error){return error.getMessage()!=null&&(error.getMessage().contains("HTTP 401")||error.getMessage().contains("HTTP 409"));}
     private String safeMessage(Exception error){String message=error.getMessage();if(message==null)return "unknown error";return message.length()>120?message.substring(0,120):message;}
+    private String apiError(Exception error){String message=error.getMessage();if(message==null)return "unknown error";int jsonStart=message.indexOf('{');if(jsonStart>=0){try{String detail=new JSONObject(message.substring(jsonStart)).optString("error","");if(!detail.isEmpty())return detail;}catch(Exception ignored){}}return safeMessage(error);}
     private String cleanAddress(String value){String result=value.trim().replaceFirst("^https?://","");int slash=result.indexOf('/');if(slash>=0)result=result.substring(0,slash);int colon=result.indexOf(':');if(colon>=0)result=result.substring(0,colon);return result;}
     private String url(String path){return "http://"+base+":43821"+path;}
     private Button action(String label,String command){Button button=button(label);button.setOnClickListener(v->control(command));return button;}

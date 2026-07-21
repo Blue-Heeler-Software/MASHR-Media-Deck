@@ -30,13 +30,14 @@ MASHR Media Deck solves the small but constant interruption of leaving a PC game
 
 The system is local-first: no cloud backend, account, Google login, analytics, or remote-desktop surface. Authenticated commands are allowlisted, replay-resistant, and firewall-scopeable to one paired phone.
 
-The core deck needs no browser extension. YouTube artwork, metadata, live progress, creator chapter markers, the tappable scene list, media controls, monitor switching, held Alt+Tab, replay, pairing, and reconnect all work with only the Android app and Windows companion. A narrowly scoped helper exists for one optional extra—the related-video grid—and nothing else depends on it.
+The core deck needs no browser extension. YouTube artwork, metadata, live progress, creator chapter markers, the tappable scene list, Like/Dislike/Subscribe, media controls, monitor switching, held Alt+Tab, replay, pairing, and reconnect all work with only the Android app and Windows companion. A narrowly scoped helper exists for one optional extra—the related-video grid—and nothing else depends on it.
 
 ## Feature callouts
 
 - Stay in-game while controlling PC music and video.
 - Glanceable artwork, metadata, and live progress.
 - Creator chapter markers and a tappable scene list.
+- Large YouTube Like, Dislike, and Subscribe controls through Windows accessibility.
 - No browser extension for the complete core deck.
 - Guarded arm/save flow for NVIDIA Instant Replay.
 - Hold-to-use Alt+Tab window switching.
@@ -52,6 +53,12 @@ The core deck needs no browser extension. YouTube artwork, metadata, live progre
 ![YouTube chapters on the main deck](images/pixel7-youtube-scenes.png)
 
 **Caption:** MASHR finds artwork, live time, and creator chapters from the selected YouTube session without a browser extension.
+
+### YouTube actions
+
+![YouTube actions and compact Alt Tab control](images/pixel7-youtube-actions.png)
+
+**Caption:** Like, Dislike, and Subscribe are available beside a compact held Alt+Tab control, with no browser extension or arbitrary-click endpoint.
 
 ### Scene picker
 

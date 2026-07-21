@@ -16,6 +16,8 @@ Browser endpoints additionally require loopback. All inputs are allowlisted or l
 
 Extension-free YouTube chapters use Windows UI Automation only to read the address bar of the unambiguous selected Brave, Chrome, or Edge media window. The companion accepts only an exact `youtube.com/watch` or `youtu.be` URL with an 11-character video ID, constructs its own public `youtube.com` request, sends no browser cookies, caps the response at 2 MiB, and extracts only bounded timestamp/title pairs.
 
+YouTube Like, Dislike, and Subscribe commands use the same unambiguous selected browser window and first verify an exact `youtube.com` host in its address bar. They can activate only visible, enabled accessibility buttons with tightly matched YouTube labels. The API accepts no coordinates, DOM selector, text, URL, or arbitrary click target from the phone. Subscribe is one-way: an already-subscribed channel reports its state instead of exposing Unsubscribe.
+
 NVIDIA replay controls read the current user's local NVIDIA Overlay settings. Hotkeys are sourced from NVIDIA's `DVRSave` and `DVRToggle` arrays, limited to four valid virtual-key codes, and never supplied by the phone. The arm endpoint is one-way: if replay is already enabled it does not toggle it off.
 
 The monitor-switch command accepts no process ID, window handle, coordinates, or executable name from the phone. The companion derives an allowlisted player process from the authenticated Windows media session, requires an unambiguous top-level media window, and moves it without activation or Z-order changes.
