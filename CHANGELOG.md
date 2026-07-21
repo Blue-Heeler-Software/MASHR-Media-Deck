@@ -16,6 +16,7 @@ All notable MASHR Media Deck changes are recorded here.
 - Extended the control stack toward the Pixel navigation area, made Mute narrower, and gave both volume controls more width, height, and label emphasis.
 - Added a dedicated screenshot button that uses NVIDIA Overlay's configured shortcut when available and falls back to Windows' saved-screenshot shortcut.
 - Reserved a consistent two-line title area so short VLC titles no longer make the deck collapse vertically.
+- Matched the Screenshot button to Mute's width and moved its label onto two clear lines.
 
 ## 1.4.0 — 2026-07-17
 

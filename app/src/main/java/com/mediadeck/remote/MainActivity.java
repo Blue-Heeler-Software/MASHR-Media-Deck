@@ -226,18 +226,22 @@ public final class MainActivity extends Activity {
         LinearLayout utilityRow=new LinearLayout(this);
         utilityRow.setGravity(Gravity.CENTER);
         utilityRow.setPadding(0,dp(5),0,0);
-        Button screenshot=largeAction("SCREENSHOT","screenshot",13);
+        Button screenshot=largeAction("SCREEN\nSHOT","screenshot",12);
+        screenshot.setSingleLine(false);
+        screenshot.setLines(2);
+        screenshot.setGravity(Gravity.CENTER);
         screenshot.setTextColor(Color.BLACK);
         screenshot.setBackground(round(Color.rgb(196,181,253),20));
         screenshot.setContentDescription("Save a screenshot of the PC using NVIDIA Overlay or Windows");
         screenshot.setOnClickListener(v->takeScreenshot());
-        addWeighted(utilityRow,screenshot,.43f);
+        addWeighted(utilityRow,screenshot,.2506f);
+        utilityRow.addView(new View(this),new LinearLayout.LayoutParams(dp(4),1));
         Button moveScreen=largeAction("MOVE MEDIA  >","movescreen",12);
         moveScreen.setTextColor(Color.BLACK);
         moveScreen.setBackground(round(Color.rgb(125,211,252),20));
         moveScreen.setContentDescription("Move the selected PC media window to the next monitor");
         moveScreen.setOnClickListener(v->moveScreen());
-        addWeighted(utilityRow,moveScreen,.57f);
+        addWeighted(utilityRow,moveScreen,.7494f);
         card.addView(utilityRow,new LinearLayout.LayoutParams(-1,dp(57)));
 
         altTab=largeAction("HOLD ALT + TAB  /  TAP PREV OR NEXT","alttab",13);
