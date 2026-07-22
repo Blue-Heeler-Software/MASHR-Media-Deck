@@ -216,21 +216,21 @@ public final class MainActivity extends Activity {
         LinearLayout volumeRow=new LinearLayout(this);
         volumeRow.setGravity(Gravity.CENTER);
         volumeRow.setPadding(0,dp(5),0,0);
-        addWeighted(volumeRow,iconAction("MUTE","mute",10,DeckIcon.MUTE,INK,18,true),.75f);
-        addWeighted(volumeRow,iconAction("DOWN","volumedown",10,DeckIcon.VOLUME_DOWN,INK,19,true),1.125f);
-        addWeighted(volumeRow,iconAction("UP","volumeup",10,DeckIcon.VOLUME_UP,INK,19,true),1.125f);
+        addWeighted(volumeRow,iconAction("DOWN","volumedown",10,DeckIcon.VOLUME_DOWN,INK,19,true));
+        addWeighted(volumeRow,iconAction("UP","volumeup",10,DeckIcon.VOLUME_UP,INK,19,true));
         card.addView(volumeRow,new LinearLayout.LayoutParams(-1,dp(60)));
 
         LinearLayout modeRow=new LinearLayout(this);
         modeRow.setGravity(Gravity.CENTER);
         modeRow.setPadding(0,dp(7),0,0);
         shuffle=iconAction("SHUFFLE","shuffle",9,DeckIcon.SHUFFLE,INK,17,true);
-        addWeighted(modeRow,shuffle);
+        addWeighted(modeRow,shuffle,.92f);
         repeat=iconAction("REPEAT","repeat",9,DeckIcon.REPEAT,INK,17,true);
         addWeighted(modeRow,repeat);
         Button stop=iconAction("STOP","stop",10,DeckIcon.STOP,Color.rgb(254,202,202),16,true);
         stop.setTextColor(Color.rgb(254,202,202));
         addWeighted(modeRow,stop);
+        addWeighted(modeRow,iconAction("MUTE","mute",9,DeckIcon.MUTE,INK,16,true),.78f);
         card.addView(modeRow,new LinearLayout.LayoutParams(-1,dp(54)));
 
         LinearLayout utilityRow=new LinearLayout(this);
@@ -242,14 +242,14 @@ public final class MainActivity extends Activity {
         screenshot.setBackground(round(Color.rgb(196,181,253),20));
         screenshot.setContentDescription("Save a screenshot of the PC using NVIDIA Overlay or Windows");
         screenshot.setOnClickListener(v->takeScreenshot());
-        addWeighted(utilityRow,screenshot,.2506f);
+        addWeighted(utilityRow,screenshot,.28f);
         utilityRow.addView(new View(this),new LinearLayout.LayoutParams(dp(4),1));
         Button moveScreen=iconAction("MOVE SCREEN","movescreen",10,DeckIcon.MONITOR,Color.BLACK,18,true);
         moveScreen.setTextColor(Color.BLACK);
         moveScreen.setBackground(round(GOLDEN_BROWN,20));
         moveScreen.setContentDescription("Move the selected PC media window to the next monitor");
         moveScreen.setOnClickListener(v->moveScreen());
-        addWeighted(utilityRow,moveScreen,.7494f);
+        addWeighted(utilityRow,moveScreen,.72f);
         card.addView(utilityRow,new LinearLayout.LayoutParams(-1,dp(57)));
 
         LinearLayout youtubeRow=new LinearLayout(this);
