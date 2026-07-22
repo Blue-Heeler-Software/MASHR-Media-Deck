@@ -2,7 +2,7 @@
 
 All notable MASHR Media Deck changes are recorded here.
 
-## Unreleased
+## 1.9.11 — 2026-07-23
 
 ### Added
 
@@ -10,7 +10,7 @@ All notable MASHR Media Deck changes are recorded here.
 
 ### Documentation
 
-- Re-captured the 1.4.12 lead deck image on the deployed Pixel 7 with the final Mute, Shuffle, Screenshot, and Like proportions.
+- Re-captured the 1.9.11 lead deck image on the deployed Pixel 7 with the final Mute, Shuffle, Screenshot, and Like proportions.
 - Released MASHR Media Deck as free and open-source software under the MIT License.
 - Re-captured the complete gallery on a real Pixel 7 running 1.4.8, cache-busted every published image path, and rebuilt the VLC demo artwork from the real UI instead of a drawn app mock-up.
 - Made the extension boundary explicit: the complete core deck is extension-free; only the optional related-video grid uses the helper.
