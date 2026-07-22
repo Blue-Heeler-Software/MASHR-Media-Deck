@@ -16,6 +16,10 @@ Browser endpoints additionally require loopback. All inputs are allowlisted or l
 
 Extension-free YouTube chapters use Windows UI Automation only to read the address bar of the unambiguous selected Brave, Chrome, or Edge media window. The companion accepts only an exact `youtube.com/watch` or `youtu.be` URL with an 11-character video ID, constructs its own public `youtube.com` request, sends no browser cookies, caps the response at 2 MiB, and extracts only bounded timestamp/title pairs.
 
+YouTube Like, Dislike, and Subscribe commands use the same unambiguous selected browser window and first verify an exact `youtube.com` host in its address bar. They can activate only visible, enabled accessibility buttons with tightly matched YouTube labels. The API accepts no coordinates, DOM selector, text, URL, or arbitrary click target from the phone. Subscribe is one-way: an already-subscribed channel reports its state instead of exposing Unsubscribe.
+
+YouTube volume accepts only an integer from 0 through 100. The companion locates the exact enabled accessibility slider named `Volume`, derives its Chromium render-host ancestor and current position locally, then sends only the fixed left/right adjustment needed to reach the requested level. The phone cannot provide a window handle, coordinate, key code, or arbitrary accessibility label; the physical cursor and Windows master volume are not changed.
+
 NVIDIA replay controls read the current user's local NVIDIA Overlay settings. Hotkeys are sourced from NVIDIA's `DVRSave` and `DVRToggle` arrays, limited to four valid virtual-key codes, and never supplied by the phone. The arm endpoint is one-way: if replay is already enabled it does not toggle it off.
 
 The monitor-switch command accepts no process ID, window handle, coordinates, or executable name from the phone. The companion derives an allowlisted player process from the authenticated Windows media session, requires an unambiguous top-level media window, and moves it without activation or Z-order changes.
@@ -25,6 +29,10 @@ The monitor-switch command accepts no process ID, window handle, coordinates, or
 The LAN transport is HTTP rather than TLS. HMAC prevents an observer from forging or replaying control requests after pairing, but it does not hide media titles, artwork, or response contents. An attacker who can actively sniff the exact one-time pairing exchange could also capture the returned device key.
 
 For the intended home-LAN setup, pair on a WPA2/WPA3 private network, do not pair on guest/public Wi-Fi, do not create router port forwards, and keep any Windows Firewall rule limited to the Private profile. A later certificate-pinning/QR-pairing iteration would be needed for confidentiality against an already-compromised LAN.
+
+## Linux and macOS scaffold boundary
+
+The Linux and macOS provider scaffolds under `clients/` start no TCP or UDP listener and cannot pair with the Android app. They are deliberately loopback/non-network building blocks until the HMAC pairing, nonce replay rejection, source-IP policy, request limits, and rate limits in [`clients/PROTOCOL.md`](clients/PROTOCOL.md) are implemented and tested. Do not expose either provider by wrapping it in an unauthenticated LAN service.
 
 ## If a phone or key may be compromised
 

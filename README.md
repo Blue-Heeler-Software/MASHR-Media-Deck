@@ -1,31 +1,102 @@
 # MASHR Media Deck
 
-![MASHR Media Deck — stay in the game](docs/images/mashr-media-deck-social.png)
+![MASHR Media Deck — stay in the game](docs/images/mashr-media-deck-social-v148.png)
 
 > Your PC keeps the game. Your phone keeps the controls.
 
-[![Android 8+](https://img.shields.io/badge/Android-8%2B-7DD3FC?style=flat-square&logo=android&logoColor=white)](#build-and-run)
-[![Windows 10/11](https://img.shields.io/badge/Windows-10%20%2F%2011-A78BFA?style=flat-square&logo=windows11&logoColor=white)](#build-and-run)
+[![Android 8+](https://img.shields.io/badge/Android-8%2B-7DD3FC?style=flat-square&logo=android&logoColor=white)](#quick-start)
+[![Windows 10/11](https://img.shields.io/badge/Windows-10%20%2F%2011-A78BFA?style=flat-square&logo=windows11&logoColor=white)](#quick-start)
+[![Linux scaffold](https://img.shields.io/badge/Linux-provider%20scaffold-8F8EA3?style=flat-square&logo=linux&logoColor=white)](clients/linux/README.md)
+[![macOS scaffold](https://img.shields.io/badge/macOS-provider%20scaffold-8F8EA3?style=flat-square&logo=apple&logoColor=white)](clients/macos/README.md)
 [![Local only](https://img.shields.io/badge/network-local%20only-22C55E?style=flat-square)](#security-model)
 [![No cloud account](https://img.shields.io/badge/cloud-none-171923?style=flat-square)](#security-model)
+[![No browser extension](https://img.shields.io/badge/browser%20extension-not%20required-22C55E?style=flat-square)](#no-extension-needed)
 [![License: MIT](https://img.shields.io/badge/license-MIT-F7C948?style=flat-square)](LICENSE)
 
 MASHR Media Deck is a second-screen Android remote built for PC gamers who do not want to Alt+Tab out of a game just to manage music or video. The Pixel shows the selected Windows media session, artwork, live timeline, chapter markers, and large controls while the game keeps focus.
 
-![MASHR Media Deck running on a Pixel 7](docs/images/pixel7-now-playing.png)
+![MASHR Media Deck showing extension-free YouTube scenes on a Pixel 7](docs/images/pixel7-youtube-scenes-v148.png)
+
+## No extension needed
+
+**Everything in the core deck works with the Android app and Windows companion alone.** That includes YouTube artwork and metadata, live progress, chapter markers, the tappable **SCENES** list, Like/Dislike/Subscribe, actual YouTube player volume, transport and system-volume controls, monitor switching, held Alt+Tab, NVIDIA replay, local pairing, and automatic reconnect.
+
+The browser helper is not required for any control shown above. It exists for one separate, optional extra: the 3×3 related-video grid. Ignore or delete `browser-extension` and the main experience is unchanged.
 
 ## What it does
 
 - Large play/pause, previous/next, volume, mute, shuffle, repeat, stop, and ±10-second controls.
 - Live artwork, title, artist, elapsed time, remaining time, and continuously updating progress.
 - Tappable YouTube creator chapters as progress markers and a **SCENES** list—no extension required.
-- Guarded NVIDIA Instant Replay slider that shows whether the buffer is off, arms it explicitly, and saves with NVIDIA's configured hotkey.
+- Extension-free YouTube **LIKE**, **DISLIKE**, and **SUB** controls through the selected browser window's Windows accessibility surface.
+- A compact **YT VOL** slider that reads and changes the selected YouTube player's own 0–100 volume without changing Windows master volume.
+- Guarded NVIDIA Instant Replay slider that shows whether the buffer is off, arms it explicitly, and labels the armed action **RECORD LAST 2:00 OF GAME** (using the detected buffer length).
 - Hold-to-use Alt+Tab: keep the yellow control held and use **PREV/NEXT** as window-switcher arrows.
 - Move the selected media window to the next monitor without stealing focus.
-- Optional 3×3 YouTube recommendation grid from a narrowly scoped browser helper.
+- Save a PC screenshot using NVIDIA Overlay's configured shortcut, with a Windows fallback.
 - Automatic reconnect through a background Windows tray companion.
+- Optional 3×3 related-video grid from a narrowly scoped helper—the only feature that uses it.
 
 See the [screenshot gallery](docs/SCREENSHOTS.md) and [press kit](docs/PRESS-KIT.md).
+
+## See it in action
+
+Every screen below is a cache-busted, real Pixel 7 capture from MASHR Media Deck 1.4.8. No drawn app mock-ups are used.
+
+[Watch the rebuilt 30-second VLC demo clip](docs/media/mashr-media-deck-demo-v148.mp4), whose artwork is composed from the same real Pixel capture.
+
+<table>
+  <tr>
+    <td colspan="2" valign="top">
+      <img src="docs/images/pixel7-youtube-actions-v148.png" alt="MASHR Media Deck with dominant Like, smaller Dislike, Subscribe, compact held Alt Tab, and YouTube volume controls"><br>
+      <strong>React without surfacing the browser.</strong><br>
+      The larger Like, smaller Dislike, Subscribe, compact multitouch Alt+Tab, and tiny actual-player volume slider work through the authenticated companion without an extension.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/pixel7-youtube-scenes-v148.png" alt="YouTube artwork, progress, and creator chapter markers on MASHR Media Deck"><br>
+      <strong>YouTube, already understood.</strong><br>
+      Artwork, title, creator, live time, and creator chapters appear without a browser add-on.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/pixel7-scene-list-v148.png" alt="Tappable YouTube scene list on MASHR Media Deck"><br>
+      <strong>Tap straight to the good bit.</strong><br>
+      The chapter list highlights the current scene and jumps to any creator timestamp.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/pixel7-alt-tab-held-v148.png" alt="Alt held mode with previous and next window controls"><br>
+      <strong>Alt+Tab without leaving the phone.</strong><br>
+      Hold the red state and use the renamed window arrows with a second finger.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/pixel7-replay-gesture-v148.png" alt="Guarded NVIDIA Instant Replay swipe in progress"><br>
+      <strong>Hard to trigger by accident.</strong><br>
+      Replay requires a deliberate left-to-right swipe and reports progress before it acts.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/pixel7-screenshot-button-v148.png" alt="MASHR Media Deck Screenshot and Move Screen controls"><br>
+      <strong>Capture without leaving the game.</strong><br>
+      The dedicated button uses NVIDIA's configured Screenshot shortcut, with a Windows fallback—and the same deck works with VLC.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/pixel7-local-pairing-v148.png" alt="Local one-time pairing screen with no YouTube login"><br>
+      <strong>Pair locally, not with a media account.</strong><br>
+      The one-time code belongs to the PC companion—there is no YouTube or cloud login.
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" valign="top">
+      <img src="docs/images/pixel7-replay-control-v148.png" alt="MASHR Media Deck gamer controls with Record last 2 minutes of game replay action"><br>
+      <strong>The action says what the gamer gets.</strong><br>
+      When NVIDIA's buffer is armed, the green control reads <strong>RECORD LAST 2:00 OF GAME</strong> instead of relying on replay jargon.
+    </td>
+  </tr>
+</table>
 
 ## Designed for the couch-and-keyboard problem
 
@@ -35,8 +106,10 @@ MASHR Media Deck is not a general remote-desktop app. It exposes a small allowli
 | --- | --- |
 | A track is too loud | Tap **VOL −** or **MUTE** |
 | A video drifts into filler | Tap **+10 SEC** or a chapter marker |
-| The media window is on the wrong display | Tap **MOVE MEDIA TO NEXT SCREEN** |
-| Something worth clipping just happened | Swipe the guarded replay control |
+| A video earns a reaction | Tap **LIKE**, **DISLIKE**, or **SUB** |
+| YouTube itself is too loud | Drag the tiny **YT VOL** slider |
+| The media window is on the wrong display | Tap **MOVE SCREEN** |
+| Something worth clipping just happened | Swipe **RECORD LAST 2:00 OF GAME** |
 | A different PC window is needed | Hold **ALT + TAB**, then tap **PREV/NEXT** |
 
 ## Security model
@@ -48,6 +121,8 @@ The phone needs no Google login, YouTube account access, Android media permissio
 - Successful pairing closes the code; resetting pairing rotates the 256-bit key.
 - Recommended LAN mode binds to one PC interface and accepts only the paired phone IP.
 - Control commands are fixed and allowlisted—there is no shell, arbitrary URL, file upload, process ID, window handle, or coordinate endpoint.
+- YouTube actions target only named accessibility controls in the selected YouTube browser window; the phone cannot send arbitrary clicks or keys.
+- YouTube volume accepts only a 0–100 level; the companion derives the exact verified Volume slider and browser render host instead of accepting caller-provided coordinates or key codes.
 - Browser-helper traffic is loopback-only.
 - YouTube chapters use the public page for the exact selected watch URL and send no browser cookies.
 
@@ -95,11 +170,20 @@ This keeps the existing Windows private/public network profile unchanged, disabl
 
 The stable executable, Android package, scheduled-task name, discovery token, HMAC headers, and pairing-storage path retain their original `MediaDeck` identifiers so existing installs upgrade without losing pairing or restart behavior.
 
-## YouTube scenes and recommendations
+## YouTube scenes and actions
 
-For Brave, Chrome, and Edge, the companion reads the address bar of the unambiguous selected media window through Windows UI Automation. When it is an exact YouTube watch URL, creator-published description timestamps become progress markers. Tap **SCENES** between elapsed and remaining time to jump to a chapter.
+**No extension is used for this.**
 
-The recommendation grid is separate and optional because Windows media sessions do not expose YouTube's related-video cards. To enable only that feature:
+For Brave, Chrome, and Edge, the companion reads the address bar of the unambiguous selected media window through Windows UI Automation. When it is an exact YouTube watch URL, creator-published description timestamps become progress markers. Tap **SCENES** between elapsed and remaining time to jump to a chapter. The same extension-free accessibility surface activates only the visible, named Like, Dislike, Subscribe, or Volume control; Subscribe never doubles as an unsubscribe action. **YT VOL** changes the webpage player's own value while leaving Windows master volume and the physical cursor alone.
+
+## Optional extra: related-video grid
+
+The 3×3 related-video grid is the one feature that cannot be recovered from Windows media sessions or the public watch page. It is separate from playback, thumbnails, progress, controls, and scenes.
+
+<details>
+<summary>Install the narrowly scoped helper for this extra only</summary>
+
+To enable only the related-video grid:
 
 1. Open `brave://extensions` or `chrome://extensions`.
 2. Enable **Developer mode**.
@@ -107,6 +191,8 @@ The recommendation grid is separate and optional because Windows media sessions 
 4. Reload the YouTube watch page.
 
 The helper requests access only to YouTube watch pages and `127.0.0.1:43821`; it requests no history, cookies, or general browsing access.
+
+</details>
 
 ## NVIDIA Instant Replay
 
@@ -116,7 +202,7 @@ MASHR Media Deck reads NVIDIA Overlay's local `ShareSettings.json` for:
 - the configured rolling-buffer duration;
 - the configured `DVRSave` and `DVRToggle` shortcuts.
 
-When replay is off, the slider is orange and says **SWIPE TO ARM REPLAY**. Once NVIDIA reports the buffer enabled, it turns green and becomes **SWIPE TO SAVE**. The remote does not expose a disarm action, so stale phone state cannot accidentally switch the buffer off.
+When replay is off, the slider is orange and says **SWIPE TO ARM GAME REPLAY**. Once NVIDIA reports the buffer enabled, it turns green and becomes **RECORD LAST 2:00 OF GAME**, with the duration taken from NVIDIA's configured rolling buffer. The remote does not expose a disarm action, so stale phone state cannot accidentally switch the buffer off.
 
 ## Restart reliability
 
@@ -138,9 +224,15 @@ Start-ScheduledTask -TaskName 'MediaDeck Companion'
 - VLC focused-window fallback
 - Most players that publish a Windows global media session
 
+## Linux and macOS companion scaffolds
+
+The complete phone-pairing companion currently targets Windows. Buildable provider scaffolds now live in [`clients/linux`](clients/linux/README.md) and [`clients/macos`](clients/macos/README.md): Linux reads MPRIS through `playerctl`, while macOS reads Apple Music or Spotify through fixed AppleScript calls.
+
+Both scaffolds emit the shared `/api/now` snapshot shape and expose a small allowlisted control CLI. They intentionally open no network ports and cannot pair with Android yet. [`clients/PROTOCOL.md`](clients/PROTOCOL.md) records the transport, HMAC, replay-protection, source-IP, and rate-limit requirements that must be implemented before either port enables LAN access.
+
 ## Project status
 
-MASHR Media Deck `1.4.0` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. It has no analytics, cloud backend, advertising, or account system.
+MASHR Media Deck `1.4.8` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. Linux and macOS are contributor scaffolds, not released companions. The project has no analytics, cloud backend, advertising, or account system.
 
 Release history is in [CHANGELOG.md](CHANGELOG.md).
 

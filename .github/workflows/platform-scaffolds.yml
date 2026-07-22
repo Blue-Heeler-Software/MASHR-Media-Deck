@@ -1,0 +1,32 @@
+name: Platform scaffolds
+
+on:
+  push:
+    paths:
+      - "clients/**"
+      - ".github/workflows/platform-scaffolds.yml"
+  pull_request:
+    paths:
+      - "clients/**"
+      - ".github/workflows/platform-scaffolds.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet build clients/linux/Mashr.MediaDeck.Linux/Mashr.MediaDeck.Linux.csproj --configuration Release
+      - run: dotnet run --project clients/linux/Mashr.MediaDeck.Linux/Mashr.MediaDeck.Linux.csproj --configuration Release --no-build -- --help
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift build --package-path clients/macos
+      - run: swift run --package-path clients/macos --skip-build mashr-media-deck-mac --help

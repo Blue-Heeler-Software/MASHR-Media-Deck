@@ -2,6 +2,8 @@
 
 The first Blue Heeler Software preview of MASHR Media Deck turns a Pixel-class Android phone into a local, glanceable PC media controller for gaming.
 
+The core experience requires no browser extension. The optional helper adds only the related-video grid.
+
 ## Highlights
 
 - One-screen portrait deck with large, obvious controls.
@@ -11,6 +13,7 @@ The first Blue Heeler Software preview of MASHR Media Deck turns a Pixel-class A
 - Focus-preserving media-window monitor cycling.
 - Hold-to-use Alt+Tab with previous/next window navigation.
 - Signed phone pairing and recommended single-phone LAN restriction.
+- A real-device gallery covering YouTube scenes, Alt+Tab, replay, local pairing, and other Windows media sessions.
 
 ## Install
 
