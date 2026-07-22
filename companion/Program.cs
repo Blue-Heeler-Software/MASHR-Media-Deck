@@ -75,6 +75,16 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0,
                 AutoReplenishment = true
             }));
+    options.AddPolicy("nearby-pair", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 90,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
 });
 
 var app = builder.Build();
@@ -108,7 +118,7 @@ app.Use(async (context, next) =>
         return;
     }
 
-    if (path == "/" || path == "/api/health" || path == "/api/pair")
+    if (path == "/" || path == "/api/health" || path == "/api/pair" || path == "/api/pair/nearby")
     {
         await next(context);
         return;
@@ -165,6 +175,7 @@ app.MapGet("/api/health", () => Results.Json(new
     service = "MASHR Media Deck",
     paired = security.IsPaired,
     pairedDevices = security.DeviceCount,
+    nearbyPairingRequests = security.NearbyRequestCount,
     pairingOpen = security.IsPairingOpen,
     pairingSecondsRemaining = security.PairingSecondsRemaining,
     lanMode = lanAccess.Mode,
@@ -181,6 +192,21 @@ app.MapPost("/api/pair", (HttpContext context) =>
         ? Results.Json(new { error = "Pairing code is incorrect." }, statusCode: StatusCodes.Status401Unauthorized)
         : Results.Json(new { error = "Pairing is closed. Open the PC dashboard and start pairing mode." }, statusCode: StatusCodes.Status409Conflict);
 }).RequireRateLimiting("pair");
+
+app.MapPost("/api/pair/nearby", (HttpContext context) =>
+{
+    var deviceId = context.Request.Headers["X-MediaDeck-Device"].ToString();
+    var deviceName = context.Request.Headers["X-MediaDeck-Device-Name"].ToString();
+    var requestToken = context.Request.Headers["X-MediaDeck-Pairing-Request"].ToString();
+    var result = security.TryNearbyPair(deviceId, deviceName, requestToken, context.Connection.RemoteIpAddress, out var key, out var expiresInSeconds);
+    return result switch
+    {
+        NearbyPairingStatus.Paired => Results.Json(new { status = "paired", key, deviceId, algorithm = "HMAC-SHA256", clockWindowSeconds = 30 }),
+        NearbyPairingStatus.Waiting => Results.Json(new { status = "waiting", expiresInSeconds }, statusCode: StatusCodes.Status202Accepted),
+        NearbyPairingStatus.Capacity => Results.Json(new { error = "The PC has too many pending or paired controllers. Revoke one in the dashboard and try again." }, statusCode: StatusCodes.Status429TooManyRequests),
+        _ => Results.Json(new { error = "Invalid nearby pairing request." }, statusCode: StatusCodes.Status400BadRequest)
+    };
+}).RequireRateLimiting("nearby-pair");
 
 app.MapGet("/api/now", async (HttpContext context) =>
 {
@@ -417,6 +443,9 @@ sealed class SecurityState
 {
     private const int PairingWindowSeconds = 120;
     private const int MaximumDevices = 16;
+    private const int NearbyRequestSeconds = 45;
+    private const int NearbyGrantSeconds = 30;
+    private const int MaximumNearbyRequests = 12;
     private const string LegacyDeviceId = "legacy";
     private readonly object gate = new();
     private readonly ConcurrentDictionary<string, long> usedNonces = new();
@@ -426,6 +455,8 @@ sealed class SecurityState
     private readonly string devicesPath;
     private readonly string codePath;
     private readonly Dictionary<string, PairedDevice> devices = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, NearbyPairingRequest> nearbyRequests = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, NearbyPairingGrant> nearbyGrants = new(StringComparer.Ordinal);
     private string pairingCode = "";
     private DateTimeOffset pairingExpiresAt = DateTimeOffset.MinValue;
     private DateTimeOffset lastDeviceSave = DateTimeOffset.MinValue;
@@ -449,6 +480,7 @@ sealed class SecurityState
 
     public bool IsPaired { get { lock (gate) return devices.Count > 0; } }
     public int DeviceCount { get { lock (gate) return devices.Count; } }
+    public int NearbyRequestCount { get { lock (gate) { ExpireNearbyLocked(); return nearbyRequests.Count; } } }
     public bool IsPairingOpen { get { lock (gate) { ExpirePairingLocked(); return pairingExpiresAt > DateTimeOffset.UtcNow; } } }
     public string PairingCode { get { lock (gate) { ExpirePairingLocked(); return pairingExpiresAt > DateTimeOffset.UtcNow ? pairingCode : ""; } } }
     public int PairingSecondsRemaining
@@ -478,6 +510,25 @@ sealed class SecurityState
                     device.LastSeenUtc,
                     now - device.LastSeenUtc < TimeSpan.FromSeconds(12),
                     device.Id == LegacyDeviceId))
+                .ToArray();
+        }
+    }
+
+    public IReadOnlyList<NearbyDeviceView> SnapshotNearby()
+    {
+        lock (gate)
+        {
+            ExpireNearbyLocked();
+            return nearbyRequests.Values
+                .OrderByDescending(request => request.RequestedAtUtc)
+                .Select(request => new NearbyDeviceView(
+                    request.RequestId,
+                    request.DeviceId,
+                    request.Name,
+                    request.Address,
+                    request.RequestedAtUtc,
+                    request.ExpiresAtUtc,
+                    nearbyGrants.ContainsKey(request.RequestId)))
                 .ToArray();
         }
     }
@@ -521,6 +572,67 @@ sealed class SecurityState
             SaveDevicesLocked();
             encodedKey = Convert.ToBase64String(key);
             assignedDeviceId = id;
+            return true;
+        }
+    }
+
+    public NearbyPairingStatus TryNearbyPair(string requestedId, string requestedName, string requestToken, IPAddress? remoteAddress, out string encodedKey, out int expiresInSeconds)
+    {
+        encodedKey = "";
+        expiresInSeconds = 0;
+        var deviceId = NormalizeDeviceId(requestedId);
+        var address = NormalizeAddress(remoteAddress);
+        requestToken = requestToken.Trim();
+        if (deviceId.Length == 0 || address.Length == 0 || requestToken.Length is < 32 or > 64 ||
+            requestToken.Any(ch => !char.IsAsciiLetterOrDigit(ch) && ch is not '-' and not '_')) return NearbyPairingStatus.Invalid;
+
+        var requestId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{deviceId}\n{requestToken}"))).ToLowerInvariant();
+        lock (gate)
+        {
+            ExpireNearbyLocked();
+            var now = DateTimeOffset.UtcNow;
+            if (nearbyGrants.TryGetValue(requestId, out var grant))
+            {
+                if (!CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(grant.Address), Encoding.ASCII.GetBytes(address)))
+                    return NearbyPairingStatus.Invalid;
+                if (!devices.ContainsKey(deviceId) && devices.Count >= MaximumDevices) return NearbyPairingStatus.Capacity;
+
+                devices[deviceId] = new PairedDevice(deviceId, grant.Name, grant.Key, now, now, address);
+                foreach (var related in nearbyRequests.Values.Where(request => request.DeviceId == deviceId).Select(request => request.RequestId).ToArray())
+                {
+                    nearbyRequests.Remove(related);
+                    nearbyGrants.Remove(related);
+                }
+                usedNonces.Clear();
+                SaveDevicesLocked();
+                encodedKey = Convert.ToBase64String(grant.Key);
+                return NearbyPairingStatus.Paired;
+            }
+
+            if (!nearbyRequests.ContainsKey(requestId) && nearbyRequests.Count >= MaximumNearbyRequests) return NearbyPairingStatus.Capacity;
+            var existing = nearbyRequests.GetValueOrDefault(requestId);
+            nearbyRequests[requestId] = new NearbyPairingRequest(
+                requestId,
+                deviceId,
+                NormalizeDeviceName(requestedName),
+                address,
+                existing?.RequestedAtUtc ?? now,
+                now.AddSeconds(NearbyRequestSeconds));
+            expiresInSeconds = NearbyRequestSeconds;
+            return NearbyPairingStatus.Waiting;
+        }
+    }
+
+    public bool ApproveNearby(string requestId)
+    {
+        lock (gate)
+        {
+            ExpireNearbyLocked();
+            if (!nearbyRequests.TryGetValue(requestId, out var request)) return false;
+            if (!devices.ContainsKey(request.DeviceId) && devices.Count >= MaximumDevices) return false;
+            var expires = DateTimeOffset.UtcNow.AddSeconds(NearbyGrantSeconds);
+            nearbyGrants[requestId] = new NearbyPairingGrant(requestId, request.DeviceId, request.Name, request.Address, RandomNumberGenerator.GetBytes(32), expires);
+            nearbyRequests[requestId] = request with { ExpiresAtUtc = expires };
             return true;
         }
     }
@@ -664,6 +776,15 @@ sealed class SecurityState
         }
     }
 
+    private void ExpireNearbyLocked()
+    {
+        var now = DateTimeOffset.UtcNow;
+        foreach (var requestId in nearbyRequests.Where(pair => pair.Value.ExpiresAtUtc <= now).Select(pair => pair.Key).ToArray())
+            nearbyRequests.Remove(requestId);
+        foreach (var requestId in nearbyGrants.Where(pair => pair.Value.ExpiresAtUtc <= now).Select(pair => pair.Key).ToArray())
+            nearbyGrants.Remove(requestId);
+    }
+
     private void SaveDevicesLocked()
     {
         try
@@ -728,9 +849,13 @@ sealed class SecurityState
 
     private sealed record PairedDevice(string Id, string Name, byte[] Key, DateTimeOffset PairedAtUtc, DateTimeOffset LastSeenUtc, string LastAddress);
     private sealed record StoredDevice(string Id, string Name, string Key, DateTimeOffset PairedAtUtc, DateTimeOffset LastSeenUtc, string? LastAddress);
+    private sealed record NearbyPairingRequest(string RequestId, string DeviceId, string Name, string Address, DateTimeOffset RequestedAtUtc, DateTimeOffset ExpiresAtUtc);
+    private sealed record NearbyPairingGrant(string RequestId, string DeviceId, string Name, string Address, byte[] Key, DateTimeOffset ExpiresAtUtc);
 }
 
 sealed record PairedDeviceView(string Id, string Name, string Address, DateTimeOffset PairedAtUtc, DateTimeOffset LastSeenUtc, bool Online, bool Legacy);
+sealed record NearbyDeviceView(string RequestId, string DeviceId, string Name, string Address, DateTimeOffset RequestedAtUtc, DateTimeOffset ExpiresAtUtc, bool Approved);
+enum NearbyPairingStatus { Invalid, Waiting, Paired, Capacity }
 
 static class NetworkPolicy
 {
@@ -755,6 +880,7 @@ sealed record LanAccessPolicy(string Mode, IPAddress? PhoneAddress, IPAddress? L
         _ => "loopback only"
     };
     public string NetworkCidr => LocalAddress is null ? "" : $"{NetworkAddress(LocalAddress, PrefixLength)}/{PrefixLength}";
+    public IPAddress? BroadcastAddress => LocalAddress is null ? null : SubnetBroadcastAddress(LocalAddress, PrefixLength);
 
     public bool Allows(IPAddress? remote)
     {
@@ -832,6 +958,18 @@ sealed record LanAccessPolicy(string Mode, IPAddress? PhoneAddress, IPAddress? L
             var bits = Math.Clamp(prefixLength - index * 8, 0, 8);
             var mask = bits == 0 ? 0 : (0xFF << (8 - bits)) & 0xFF;
             bytes[index] = (byte)(bytes[index] & mask);
+        }
+        return new IPAddress(bytes);
+    }
+
+    private static IPAddress SubnetBroadcastAddress(IPAddress address, int prefixLength)
+    {
+        var bytes = address.GetAddressBytes();
+        for (var index = 0; index < bytes.Length; index++)
+        {
+            var bits = Math.Clamp(prefixLength - index * 8, 0, 8);
+            var mask = bits == 0 ? 0 : (0xFF << (8 - bits)) & 0xFF;
+            bytes[index] = (byte)((bytes[index] & mask) | (~mask & 0xFF));
         }
         return new IPAddress(bytes);
     }
@@ -1505,8 +1643,11 @@ static class TrayApplication
         private readonly System.Windows.Forms.Label codeLabel;
         private readonly System.Windows.Forms.Label timerLabel;
         private readonly System.Windows.Forms.Label networkLabel;
+        private readonly System.Windows.Forms.Label nearbyHint;
         private readonly System.Windows.Forms.Label deviceHeading;
+        private readonly System.Windows.Forms.ComboBox nearbyList;
         private readonly System.Windows.Forms.ListView deviceList;
+        private readonly System.Windows.Forms.Button approveNearbyButton;
         private readonly System.Windows.Forms.Button startButton;
         private readonly System.Windows.Forms.Button stopButton;
         private readonly System.Windows.Forms.Button copyButton;
@@ -1525,8 +1666,8 @@ static class TrayApplication
             ForeColor = Ink;
             Font = new Font("Segoe UI", 10f);
             StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-            MinimumSize = new Size(760, 610);
-            ClientSize = new Size(820, 650);
+            MinimumSize = new Size(760, 690);
+            ClientSize = new Size(820, 742);
             ShowInTaskbar = true;
 
             var header = new System.Windows.Forms.Panel { Dock = System.Windows.Forms.DockStyle.Top, Height = 104, Padding = new System.Windows.Forms.Padding(24, 17, 24, 10) };
@@ -1564,17 +1705,55 @@ static class TrayApplication
             var pairingCard = new System.Windows.Forms.Panel
             {
                 Dock = System.Windows.Forms.DockStyle.Top,
-                Height = 178,
+                Height = 270,
                 BackColor = Card,
                 Padding = new System.Windows.Forms.Padding(22, 15, 22, 15)
             };
+            var nearbyHeading = new System.Windows.Forms.Label
+            {
+                Text = "NEARBY CONTROLLERS  •  OPEN THE APP ON A PHONE",
+                AutoSize = true,
+                Font = new Font("Segoe UI", 11f, FontStyle.Bold),
+                ForeColor = Ink,
+                Location = new Point(22, 13)
+            };
+            nearbyList = new System.Windows.Forms.ComboBox
+            {
+                Location = new Point(22, 42),
+                Width = 492,
+                Height = 36,
+                DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList,
+                BackColor = CardRaised,
+                ForeColor = Ink,
+                FlatStyle = System.Windows.Forms.FlatStyle.Flat,
+                Font = new Font("Segoe UI", 11f, FontStyle.Bold)
+            };
+            nearbyList.SelectedIndexChanged += (_, _) => RefreshNearbyMessage();
+            approveNearbyButton = DeckButton("PAIR THIS DEVICE", Green, Color.FromArgb(7, 35, 18), 270);
+            approveNearbyButton.Location = new Point(528, 36);
+            approveNearbyButton.Enabled = false;
+            approveNearbyButton.Click += (_, _) => PairNearby();
+            nearbyHint = new System.Windows.Forms.Label
+            {
+                Text = "No unpaired phones seen yet. Open MASHR Media Deck on the phone.",
+                AutoSize = true,
+                Font = new Font("Segoe UI", 9.5f),
+                ForeColor = Muted,
+                Location = new Point(24, 87)
+            };
+            var divider = new System.Windows.Forms.Panel
+            {
+                BackColor = CardRaised,
+                Location = new Point(22, 111),
+                Size = new Size(776, 1)
+            };
             modeLabel = new System.Windows.Forms.Label
             {
-                Text = "PAIRING MODE CLOSED",
+                Text = "FALLBACK CODE CLOSED",
                 AutoSize = true,
                 Font = new Font("Segoe UI", 11f, FontStyle.Bold),
                 ForeColor = Purple,
-                Location = new Point(22, 15)
+                Location = new Point(22, 124)
             };
             codeLabel = new System.Windows.Forms.Label
             {
@@ -1582,34 +1761,34 @@ static class TrayApplication
                 AutoSize = true,
                 Font = new Font("Consolas", 31f, FontStyle.Bold),
                 ForeColor = Ink,
-                Location = new Point(18, 44)
+                Location = new Point(18, 149)
             };
             timerLabel = new System.Windows.Forms.Label
             {
-                Text = "Start pairing to add another controller without disconnecting the others.",
+                Text = "Only needed if nearby discovery is unavailable.",
                 AutoSize = true,
                 Font = new Font("Segoe UI", 10f),
                 ForeColor = Muted,
-                Location = new Point(24, 104)
+                Location = new Point(24, 207)
             };
-            startButton = DeckButton("START PAIRING", Purple, Color.FromArgb(19, 13, 35), 154);
-            startButton.Location = new Point(420, 25);
+            startButton = DeckButton("START CODE MODE", Purple, Color.FromArgb(19, 13, 35), 154);
+            startButton.Location = new Point(420, 136);
             startButton.Click += (_, _) => { security.StartPairing(); RefreshState(); };
             copyButton = DeckButton("COPY CODE", CardRaised, Ink, 132);
-            copyButton.Location = new Point(584, 25);
+            copyButton.Location = new Point(584, 136);
             copyButton.Click += (_, _) => CopyCode();
             stopButton = DeckButton("STOP", Color.FromArgb(92, 45, 45), Ink, 132);
-            stopButton.Location = new Point(584, 83);
+            stopButton.Location = new Point(584, 192);
             stopButton.Click += (_, _) => { security.StopPairing(); RefreshState(); };
             var howLabel = new System.Windows.Forms.Label
             {
-                Text = "PHONE: PC SETTINGS  →  ENTER THIS CODE  →  PAIR",
+                Text = "FALLBACK: PC SETTINGS ON PHONE  →  ENTER THIS CODE  →  PAIR",
                 AutoSize = true,
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
                 ForeColor = Purple,
-                Location = new Point(24, 137)
+                Location = new Point(24, 240)
             };
-            pairingCard.Controls.AddRange([modeLabel, codeLabel, timerLabel, startButton, copyButton, stopButton, howLabel]);
+            pairingCard.Controls.AddRange([nearbyHeading, nearbyList, approveNearbyButton, nearbyHint, divider, modeLabel, codeLabel, timerLabel, startButton, copyButton, stopButton, howLabel]);
 
             var devicePanel = new System.Windows.Forms.Panel { Dock = System.Windows.Forms.DockStyle.Fill, Padding = new System.Windows.Forms.Padding(22, 18, 22, 12) };
             deviceHeading = new System.Windows.Forms.Label
@@ -1687,17 +1866,67 @@ static class TrayApplication
         {
             var open = security.IsPairingOpen;
             var seconds = security.PairingSecondsRemaining;
-            modeLabel.Text = open ? "PAIRING MODE OPEN" : "PAIRING MODE CLOSED";
+            modeLabel.Text = open ? "FALLBACK CODE OPEN" : "FALLBACK CODE CLOSED";
             modeLabel.ForeColor = open ? Gold : Purple;
             codeLabel.Text = open ? FormatCode(security.PairingCode) : "— — —";
             timerLabel.Text = open
                 ? $"Open for {seconds / 60}:{seconds % 60:00}. You can pair several phones during this window."
-                : "Start pairing to add another controller without disconnecting the others.";
+                : "Only needed if nearby discovery is unavailable.";
             networkLabel.Text = lanAccess.IsEnabled
                 ? $"LAN GATE  •  {lanAccess.Display.ToUpperInvariant()}\nSIGNED COMMANDS ONLY"
                 : "LAN ACCESS OFF\nLOOPBACK ONLY";
             networkLabel.ForeColor = lanAccess.IsEnabled ? Green : Color.FromArgb(248, 113, 113);
+            RefreshNearby();
             RefreshDevices();
+        }
+
+        private void RefreshNearby()
+        {
+            var selected = nearbyList.SelectedItem as NearbyChoice;
+            var snapshot = security.SnapshotNearby();
+            nearbyList.BeginUpdate();
+            nearbyList.Items.Clear();
+            foreach (var request in snapshot)
+                nearbyList.Items.Add(new NearbyChoice(request.RequestId, request.Name, request.Address, request.ExpiresAtUtc, request.Approved));
+            if (nearbyList.Items.Count > 0)
+            {
+                var selectedIndex = 0;
+                if (selected is not null)
+                    for (var index = 0; index < nearbyList.Items.Count; index++)
+                        if ((nearbyList.Items[index] as NearbyChoice)?.RequestId == selected.RequestId) { selectedIndex = index; break; }
+                nearbyList.SelectedIndex = selectedIndex;
+            }
+            nearbyList.EndUpdate();
+            nearbyList.Enabled = nearbyList.Items.Count > 0;
+            RefreshNearbyMessage();
+        }
+
+        private void RefreshNearbyMessage()
+        {
+            var selected = nearbyList.SelectedItem as NearbyChoice;
+            approveNearbyButton.Enabled = selected is not null && !selected.Approved;
+            if (selected is null)
+            {
+                nearbyHint.Text = "No unpaired phones seen yet. Open MASHR Media Deck on the phone.";
+                nearbyHint.ForeColor = Muted;
+                return;
+            }
+            if (selected.Approved)
+            {
+                var remaining = Math.Max(0, (int)Math.Ceiling((selected.ExpiresAtUtc - DateTimeOffset.UtcNow).TotalSeconds));
+                nearbyHint.Text = $"Approved for {remaining}s. Waiting for that exact phone and IP to collect its one-use key...";
+                nearbyHint.ForeColor = Gold;
+                return;
+            }
+            nearbyHint.Text = $"{selected.Name} at {selected.Address} is asking. Confirm it is yours, then click once.";
+            nearbyHint.ForeColor = Green;
+        }
+
+        private void PairNearby()
+        {
+            if (nearbyList.SelectedItem is not NearbyChoice selected) return;
+            security.ApproveNearby(selected.RequestId);
+            RefreshState();
         }
 
         private void RefreshDevices()
@@ -1790,6 +2019,11 @@ static class TrayApplication
                 Margin = new System.Windows.Forms.Padding(0, 0, 10, 0),
                 UseVisualStyleBackColor = false
             };
+        }
+
+        private sealed record NearbyChoice(string RequestId, string Name, string Address, DateTimeOffset ExpiresAtUtc, bool Approved)
+        {
+            public override string ToString() => $"{Name}  •  {Address}{(Approved ? "  •  APPROVED" : "")}";
         }
 
         private static string FormatCode(string code) => code.Length == 6 ? $"{code[..3]}  {code[3..]}" : code;
@@ -2067,6 +2301,7 @@ static class LanDiscovery
 {
     public static async Task Run(int discoveryPort, int httpPort, LanAccessPolicy lanAccess, CancellationToken stopping)
     {
+        var beacon = Announce(discoveryPort, httpPort, lanAccess, stopping);
         try
         {
             using var udp = new UdpClient(discoveryPort);
@@ -2084,6 +2319,23 @@ static class LanDiscovery
         }
         catch (OperationCanceledException) { }
         catch { }
+        try { await beacon; } catch (OperationCanceledException) { } catch { }
+    }
+
+    private static async Task Announce(int discoveryPort, int httpPort, LanAccessPolicy lanAccess, CancellationToken stopping)
+    {
+        using var udp = new UdpClient { EnableBroadcast = true };
+        var message = Encoding.UTF8.GetBytes($"MEDIADECK:{httpPort}");
+        var addresses = new[] { lanAccess.BroadcastAddress, IPAddress.Broadcast }.Where(address => address is not null).Distinct().Cast<IPAddress>().ToArray();
+        while (!stopping.IsCancellationRequested)
+        {
+            foreach (var address in addresses)
+            {
+                try { await udp.SendAsync(message, new IPEndPoint(address, discoveryPort), stopping); }
+                catch (SocketException) { }
+            }
+            await Task.Delay(TimeSpan.FromSeconds(1), stopping);
+        }
     }
 }
 
