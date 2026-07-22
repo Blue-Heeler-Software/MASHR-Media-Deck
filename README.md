@@ -1,6 +1,6 @@
 # MASHR Media Deck
 
-![MASHR Media Deck — stay in the game](docs/images/mashr-media-deck-social.png)
+![MASHR Media Deck — stay in the game](docs/images/mashr-media-deck-social-v148.png)
 
 > Your PC keeps the game. Your phone keeps the controls.
 
@@ -15,7 +15,7 @@
 
 MASHR Media Deck is a second-screen Android remote built for PC gamers who do not want to Alt+Tab out of a game just to manage music or video. The Pixel shows the selected Windows media session, artwork, live timeline, chapter markers, and large controls while the game keeps focus.
 
-![MASHR Media Deck showing extension-free YouTube scenes on a Pixel 7](docs/images/pixel7-youtube-scenes.png)
+![MASHR Media Deck showing extension-free YouTube scenes on a Pixel 7](docs/images/pixel7-youtube-scenes-v148.png)
 
 ## No extension needed
 
@@ -41,55 +41,57 @@ See the [screenshot gallery](docs/SCREENSHOTS.md) and [press kit](docs/PRESS-KIT
 
 ## See it in action
 
-Every screen below is a real Pixel 7 capture from the extension-free core.
+Every screen below is a cache-busted, real Pixel 7 capture from MASHR Media Deck 1.4.8. No drawn app mock-ups are used.
+
+[Watch the rebuilt 30-second VLC demo clip](docs/media/mashr-media-deck-demo-v148.mp4), whose artwork is composed from the same real Pixel capture.
 
 <table>
   <tr>
     <td colspan="2" valign="top">
-      <img src="docs/images/pixel7-youtube-actions.png" alt="MASHR Media Deck with dominant Like, smaller Dislike, Subscribe, compact held Alt Tab, and YouTube volume controls"><br>
+      <img src="docs/images/pixel7-youtube-actions-v148.png" alt="MASHR Media Deck with dominant Like, smaller Dislike, Subscribe, compact held Alt Tab, and YouTube volume controls"><br>
       <strong>React without surfacing the browser.</strong><br>
       The larger Like, smaller Dislike, Subscribe, compact multitouch Alt+Tab, and tiny actual-player volume slider work through the authenticated companion without an extension.
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/pixel7-youtube-scenes.png" alt="YouTube artwork, progress, and creator chapter markers on MASHR Media Deck"><br>
+      <img src="docs/images/pixel7-youtube-scenes-v148.png" alt="YouTube artwork, progress, and creator chapter markers on MASHR Media Deck"><br>
       <strong>YouTube, already understood.</strong><br>
       Artwork, title, creator, live time, and creator chapters appear without a browser add-on.
     </td>
     <td width="50%" valign="top">
-      <img src="docs/images/pixel7-scene-list.png" alt="Tappable YouTube scene list on MASHR Media Deck"><br>
+      <img src="docs/images/pixel7-scene-list-v148.png" alt="Tappable YouTube scene list on MASHR Media Deck"><br>
       <strong>Tap straight to the good bit.</strong><br>
       The chapter list highlights the current scene and jumps to any creator timestamp.
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/pixel7-alt-tab-held.png" alt="Alt held mode with previous and next window controls"><br>
+      <img src="docs/images/pixel7-alt-tab-held-v148.png" alt="Alt held mode with previous and next window controls"><br>
       <strong>Alt+Tab without leaving the phone.</strong><br>
       Hold the red state and use the renamed window arrows with a second finger.
     </td>
     <td width="50%" valign="top">
-      <img src="docs/images/pixel7-replay-gesture.png" alt="Guarded NVIDIA Instant Replay swipe in progress"><br>
+      <img src="docs/images/pixel7-replay-gesture-v148.png" alt="Guarded NVIDIA Instant Replay swipe in progress"><br>
       <strong>Hard to trigger by accident.</strong><br>
       Replay requires a deliberate left-to-right swipe and reports progress before it acts.
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/pixel7-screenshot-button.png" alt="MASHR Media Deck Screenshot and Move Screen controls"><br>
+      <img src="docs/images/pixel7-screenshot-button-v148.png" alt="MASHR Media Deck Screenshot and Move Screen controls"><br>
       <strong>Capture without leaving the game.</strong><br>
       The dedicated button uses NVIDIA's configured Screenshot shortcut, with a Windows fallback—and the same deck works with VLC.
     </td>
     <td width="50%" valign="top">
-      <img src="docs/images/pixel7-local-pairing.png" alt="Local one-time pairing screen with no YouTube login"><br>
+      <img src="docs/images/pixel7-local-pairing-v148.png" alt="Local one-time pairing screen with no YouTube login"><br>
       <strong>Pair locally, not with a media account.</strong><br>
       The one-time code belongs to the PC companion—there is no YouTube or cloud login.
     </td>
   </tr>
   <tr>
     <td colspan="2" valign="top">
-      <img src="docs/images/pixel7-replay-control.png" alt="MASHR Media Deck gamer controls with Record last 2 minutes of game replay action"><br>
+      <img src="docs/images/pixel7-replay-control-v148.png" alt="MASHR Media Deck gamer controls with Record last 2 minutes of game replay action"><br>
       <strong>The action says what the gamer gets.</strong><br>
       When NVIDIA's buffer is armed, the green control reads <strong>RECORD LAST 2:00 OF GAME</strong> instead of relying on replay jargon.
     </td>

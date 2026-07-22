@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">MASHR Media Deck on a real Pixel 7</title>
+  <desc id="desc">MASHR Media Deck branding beside a real Pixel 7 capture showing the extension-free gaming media controls.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#080910"/>
+      <stop offset="0.62" stop-color="#12131D"/>
+      <stop offset="1" stop-color="#241A3A"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#C4B5FD"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#A78BFA"/>
+      <stop offset="1" stop-color="#7DD3FC"/>
+    </linearGradient>
+    <filter id="phoneShadow" x="-40%" y="-30%" width="180%" height="170%">
+      <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#000" flood-opacity=".55"/>
+    </filter>
+    <filter id="panelShadow" x="-30%" y="-40%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000" flood-opacity=".42"/>
+    </filter>
+    <clipPath id="phoneClip">
+      <rect x="939" y="42" width="251" height="558" rx="28"/>
+    </clipPath>
+    <clipPath id="detailClip">
+      <rect x="660" y="402" width="300" height="172" rx="22"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <path d="M620 0h660v640H830z" fill="#A78BFA" opacity=".045"/>
+  <circle cx="1104" cy="256" r="370" fill="#8B5CF6" opacity=".09"/>
+  <circle cx="922" cy="600" r="260" fill="#7DD3FC" opacity=".045"/>
+
+  <g transform="translate(72 58)">
+    <rect width="82" height="82" rx="22" fill="url(#mark)"/>
+    <path d="M18 57V25h12l11 14 11-14h12v32H52V42L41 57 30 42v15z" fill="#fff"/>
+    <path d="M53 57l18 11-18 11z" fill="#7DD3FC"/>
+  </g>
+  <text x="174" y="104" fill="#F7F5FF" font-family="Segoe UI, Arial, sans-serif" font-size="45" font-weight="850" letter-spacing="3">MASHR</text>
+  <text x="176" y="137" fill="#A78BFA" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="750" letter-spacing="6">MEDIA DECK</text>
+
+  <rect x="72" y="180" width="112" height="5" rx="2.5" fill="url(#line)"/>
+  <text x="72" y="257" fill="#F7F5FF" font-family="Segoe UI, Arial, sans-serif" font-size="58" font-weight="850" letter-spacing="1">STAY IN THE GAME.</text>
+  <text x="72" y="307" fill="#B9B7C8" font-family="Segoe UI, Arial, sans-serif" font-size="27">Media controls stay on your phone.</text>
+
+  <g font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="800">
+    <rect x="72" y="350" width="198" height="46" rx="23" fill="#1E4934" stroke="#22C55E" stroke-opacity=".36"/>
+    <circle cx="98" cy="373" r="7" fill="#22C55E"/>
+    <text x="178" y="379" text-anchor="middle" fill="#ECFDF5">NO EXTENSION</text>
+    <rect x="284" y="350" width="164" height="46" rx="23" fill="#2D2844"/>
+    <text x="366" y="379" text-anchor="middle" fill="#F7F5FF">ALT + TAB</text>
+    <rect x="462" y="350" width="184" height="46" rx="23" fill="#2D2844"/>
+    <text x="554" y="379" text-anchor="middle" fill="#7DD3FC">INSTANT REPLAY</text>
+  </g>
+
+  <text x="72" y="466" fill="#F7F5FF" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700">Real artwork. Live progress. Big controls.</text>
+  <text x="72" y="505" fill="#A3A1B3" font-family="Segoe UI, Arial, sans-serif" font-size="19">Android + Windows · local-first · open source</text>
+  <text x="72" y="575" fill="#7DD3FC" font-family="Segoe UI, Arial, sans-serif" font-size="17" font-weight="800" letter-spacing="2">BLUE HEELER SOFTWARE</text>
+
+  <g filter="url(#panelShadow)">
+    <rect x="648" y="390" width="324" height="196" rx="28" fill="#11121A" stroke="#403A58" stroke-width="3"/>
+    <g clip-path="url(#detailClip)">
+      <image href="pixel7-youtube-actions-v148.png" x="660" y="-27" width="300" height="667" preserveAspectRatio="none"/>
+    </g>
+    <rect x="672" y="376" width="164" height="30" rx="15" fill="#7DD3FC"/>
+    <text x="754" y="397" text-anchor="middle" fill="#080910" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="850" letter-spacing="1">REAL CONTROLS</text>
+  </g>
+
+  <g filter="url(#phoneShadow)">
+    <rect x="920" y="22" width="289" height="598" rx="47" fill="#07080D" stroke="#4B4465" stroke-width="6"/>
+    <g clip-path="url(#phoneClip)">
+      <image href="pixel7-youtube-actions-v148.png" x="939" y="42" width="251" height="558" preserveAspectRatio="none"/>
+    </g>
+    <rect x="1011" y="31" width="108" height="13" rx="7" fill="#07080D"/>
+  </g>
+  <rect x="1010" y="592" width="110" height="26" rx="13" fill="#151620" stroke="#514A6C"/>
+  <text x="1065" y="610" text-anchor="middle" fill="#F7F5FF" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="800" letter-spacing="1">PIXEL 7</text>
+</svg>

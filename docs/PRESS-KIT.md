@@ -52,57 +52,57 @@ The core deck needs no browser extension. YouTube artwork, metadata, live progre
 
 ### Extension-free YouTube deck
 
-![YouTube chapters on the main deck](images/pixel7-youtube-scenes.png)
+![YouTube chapters on the main deck](images/pixel7-youtube-scenes-v148.png)
 
 **Caption:** MASHR finds artwork, live time, and creator chapters from the selected YouTube session without a browser extension.
 
 ### YouTube actions
 
-![YouTube actions, compact Alt Tab, and actual player volume control](images/pixel7-youtube-actions.png)
+![YouTube actions, compact Alt Tab, and actual player volume control](images/pixel7-youtube-actions-v148.png)
 
 **Caption:** A dominant Like, smaller Dislike, Subscribe, compact held Alt+Tab, and tiny actual-player volume slider fit in one glanceable extension-free control block.
 
 ### Scene picker
 
-![Tappable YouTube creator chapters](images/pixel7-scene-list.png)
+![Tappable YouTube creator chapters](images/pixel7-scene-list-v148.png)
 
 **Caption:** The current scene is highlighted; every creator timestamp is one tap away.
 
 ### Held Alt+Tab
 
-![Alt held with phone window arrows](images/pixel7-alt-tab-held.png)
+![Alt held with phone window arrows](images/pixel7-alt-tab-held-v148.png)
 
 **Caption:** Hold Alt on the phone while a second touch steps left or right through the Windows switcher.
 
 ### Replay gesture
 
-![Guarded replay swipe in progress](images/pixel7-replay-gesture.png)
+![Guarded replay swipe in progress](images/pixel7-replay-gesture-v148.png)
 
 **Caption:** The high-consequence replay action exposes its activation progress instead of firing on a stray tap, then states exactly how much gameplay will be recorded.
 
 ### Local pairing
 
-![Local phone-to-PC pairing](images/pixel7-local-pairing.png)
+![Local phone-to-PC pairing](images/pixel7-local-pairing-v148.png)
 
 **Caption:** The phone pairs directly with the PC companion—no YouTube, Google, or cloud account.
 
 ### Screenshot button
 
-![Dedicated Screenshot and Move Screen controls](images/pixel7-screenshot-button.png)
+![Dedicated Screenshot and Move Screen controls](images/pixel7-screenshot-button-v148.png)
 
 **Caption:** Capture the PC through NVIDIA's configured shortcut without leaving the game; Windows provides the fallback.
 
 ### Main deck
 
-![MASHR Media Deck main controls](images/pixel7-now-playing.png)
+![MASHR Media Deck main controls](images/pixel7-now-playing-v148.png)
 
-**Caption:** A locally generated MASHR demo clip in VLC shows that the deck is not limited to YouTube.
+**Caption:** A locally generated VLC clip uses a real Pixel 7 capture in its artwork and shows that the deck is not limited to YouTube.
 
 **Alt text:** Dark Android media remote showing VLC demo artwork, large purple transport buttons, blue monitor control, YouTube action row, yellow Alt+Tab control, and green game-replay slider.
 
 ### Replay control detail
 
-![Guarded NVIDIA replay control](images/pixel7-replay-control.png)
+![Guarded NVIDIA replay control](images/pixel7-replay-control-v148.png)
 
 **Caption:** Replay state is explicit: orange arms the rolling buffer; green reads **RECORD LAST 2:00 OF GAME** using NVIDIA's configured history length.
 
@@ -123,7 +123,9 @@ The core deck needs no browser extension. YouTube artwork, metadata, live progre
 Logo assets:
 
 - [Vector mark](images/mashr-mark.svg)
-- [Social preview](images/mashr-media-deck-social.png)
+- [Social preview using a real Pixel 7 capture](images/mashr-media-deck-social-v148.png)
+- [Editable social preview source](images/mashr-media-deck-social-v148.svg)
+- [30-second VLC demo clip using the real Pixel artwork](media/mashr-media-deck-demo-v148.mp4)
 
 ## Ready-to-use launch copy
 
