@@ -6,10 +6,15 @@ import android.app.Dialog;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.ColorFilter;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
@@ -73,6 +78,7 @@ public final class MainActivity extends Activity {
     private long durationMs,positionMs,lastArtworkAttemptMs;
     private int replaySeconds=120;
     private final ArrayList<MediaChapter> chapters=new ArrayList<>();
+    private enum DeckIcon { SETTINGS,LIST,PREVIOUS,PLAY,PAUSE,NEXT,ARROW_LEFT,ARROW_RIGHT,BACK10,FORWARD10,MUTE,VOLUME_DOWN,VOLUME_UP,SHUFFLE,REPEAT,STOP,CAMERA,MONITOR,THUMB_UP,THUMB_DOWN,SUBSCRIBE,ALT_TAB }
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
@@ -114,7 +120,8 @@ public final class MainActivity extends Activity {
         brandBlock.addView(brandSub,new LinearLayout.LayoutParams(-1,dp(17)));
         topBar.addView(brandBlock,new LinearLayout.LayoutParams(0,dp(42),1));
         Button settings=button("PC SETTINGS");
-        settings.setTextSize(12);
+        settings.setTextSize(11);
+        setIcon(settings,DeckIcon.SETTINGS,INK,16,false);
         settings.setOnClickListener(v->openPcSettings());
         topBar.addView(settings,new LinearLayout.LayoutParams(-2,dp(42)));
         root.addView(topBar);
@@ -177,6 +184,7 @@ public final class MainActivity extends Activity {
         scenes.setVisibility(View.INVISIBLE);
         scenes.setOnClickListener(v->showScenes());
         scenes.setContentDescription("Open the chapter scene list");
+        setIcon(scenes,DeckIcon.LIST,PURPLE,12,false);
         times.addView(scenes,new LinearLayout.LayoutParams(-2,-2));
         remaining.setGravity(Gravity.END);
         times.addView(remaining,new LinearLayout.LayoutParams(0,-2,1));
@@ -185,14 +193,14 @@ public final class MainActivity extends Activity {
 
         LinearLayout transport=new LinearLayout(this);
         transport.setGravity(Gravity.CENTER);
-        previous=largeAction("<  PREV","previous",14);
+        previous=iconAction("PREV","previous",12,DeckIcon.PREVIOUS,INK,21,true);
         previous.setOnClickListener(v->{if(altHeld)sendKeyCommand("arrowleft");else control("previous");});
         addWeighted(transport,previous);
-        play=largeAction("PLAY","play",16);
+        play=iconAction("PLAY","play",13,DeckIcon.PLAY,Color.BLACK,22,true);
         play.setTextColor(Color.BLACK);
         play.setBackground(round(PURPLE,20));
         addWeighted(transport,play);
-        next=largeAction("NEXT  >","next",14);
+        next=iconAction("NEXT","next",12,DeckIcon.NEXT,INK,21,true);
         next.setOnClickListener(v->{if(altHeld)sendKeyCommand("arrowright");else control("next");});
         addWeighted(transport,next);
         card.addView(transport,new LinearLayout.LayoutParams(-1,dp(64)));
@@ -200,26 +208,26 @@ public final class MainActivity extends Activity {
         LinearLayout seekRow=new LinearLayout(this);
         seekRow.setGravity(Gravity.CENTER);
         seekRow.setPadding(0,dp(5),0,0);
-        addWeighted(seekRow,largeAction("-10 SEC","back10",12));
-        addWeighted(seekRow,largeAction("+10 SEC","forward10",12));
+        addWeighted(seekRow,iconAction("BACK","back10",11,DeckIcon.BACK10,INK,19,false));
+        addWeighted(seekRow,iconAction("AHEAD","forward10",11,DeckIcon.FORWARD10,INK,19,false));
         card.addView(seekRow,new LinearLayout.LayoutParams(-1,dp(44)));
 
         LinearLayout volumeRow=new LinearLayout(this);
         volumeRow.setGravity(Gravity.CENTER);
         volumeRow.setPadding(0,dp(5),0,0);
-        addWeighted(volumeRow,largeAction("MUTE","mute",12),.75f);
-        addWeighted(volumeRow,largeAction("VOL  -","volumedown",14),1.125f);
-        addWeighted(volumeRow,largeAction("VOL  +","volumeup",14),1.125f);
+        addWeighted(volumeRow,iconAction("MUTE","mute",10,DeckIcon.MUTE,INK,18,true),.75f);
+        addWeighted(volumeRow,iconAction("DOWN","volumedown",10,DeckIcon.VOLUME_DOWN,INK,19,true),1.125f);
+        addWeighted(volumeRow,iconAction("UP","volumeup",10,DeckIcon.VOLUME_UP,INK,19,true),1.125f);
         card.addView(volumeRow,new LinearLayout.LayoutParams(-1,dp(60)));
 
         LinearLayout modeRow=new LinearLayout(this);
         modeRow.setGravity(Gravity.CENTER);
         modeRow.setPadding(0,dp(7),0,0);
-        shuffle=largeAction("SHUFFLE","shuffle",12);
+        shuffle=iconAction("SHUFFLE","shuffle",9,DeckIcon.SHUFFLE,INK,17,true);
         addWeighted(modeRow,shuffle);
-        repeat=largeAction("REPEAT","repeat",12);
+        repeat=iconAction("REPEAT","repeat",9,DeckIcon.REPEAT,INK,17,true);
         addWeighted(modeRow,repeat);
-        Button stop=largeAction("STOP","stop",13);
+        Button stop=iconAction("STOP","stop",10,DeckIcon.STOP,Color.rgb(254,202,202),16,true);
         stop.setTextColor(Color.rgb(254,202,202));
         addWeighted(modeRow,stop);
         card.addView(modeRow,new LinearLayout.LayoutParams(-1,dp(54)));
@@ -227,9 +235,7 @@ public final class MainActivity extends Activity {
         LinearLayout utilityRow=new LinearLayout(this);
         utilityRow.setGravity(Gravity.CENTER);
         utilityRow.setPadding(0,dp(5),0,0);
-        Button screenshot=largeAction("SCREEN\nSHOT","screenshot",12);
-        screenshot.setSingleLine(false);
-        screenshot.setLines(2);
+        Button screenshot=iconAction("SHOT","screenshot",9,DeckIcon.CAMERA,Color.BLACK,18,true);
         screenshot.setGravity(Gravity.CENTER);
         screenshot.setTextColor(Color.BLACK);
         screenshot.setBackground(round(Color.rgb(196,181,253),20));
@@ -237,7 +243,7 @@ public final class MainActivity extends Activity {
         screenshot.setOnClickListener(v->takeScreenshot());
         addWeighted(utilityRow,screenshot,.2506f);
         utilityRow.addView(new View(this),new LinearLayout.LayoutParams(dp(4),1));
-        Button moveScreen=largeAction("MOVE SCREEN  >","movescreen",12);
+        Button moveScreen=iconAction("MOVE SCREEN","movescreen",10,DeckIcon.MONITOR,Color.BLACK,18,true);
         moveScreen.setTextColor(Color.BLACK);
         moveScreen.setBackground(round(Color.rgb(125,211,252),20));
         moveScreen.setContentDescription("Move the selected PC media window to the next monitor");
@@ -248,27 +254,25 @@ public final class MainActivity extends Activity {
         LinearLayout youtubeRow=new LinearLayout(this);
         youtubeRow.setGravity(Gravity.CENTER);
         youtubeRow.setPadding(0,dp(5),0,0);
-        Button like=largeAction("LIKE","like",11);
+        Button like=iconAction("LIKE","like",9,DeckIcon.THUMB_UP,Color.BLACK,15,true);
         like.setTextColor(Color.BLACK);
         like.setBackground(round(Color.rgb(134,239,172),18));
         like.setContentDescription("Like or unlike the selected YouTube video");
         like.setOnClickListener(v->youtubeAction("like","Like"));
         addWeighted(youtubeRow,like,1.15f);
-        Button dislike=largeAction("DISLIKE","dislike",10);
+        Button dislike=iconAction("DISLIKE","dislike",8,DeckIcon.THUMB_DOWN,Color.BLACK,14,true);
         dislike.setTextColor(Color.BLACK);
         dislike.setBackground(round(Color.rgb(254,202,202),18));
         dislike.setContentDescription("Dislike or remove the dislike from the selected YouTube video");
         dislike.setOnClickListener(v->youtubeAction("dislike","Dislike"));
         addWeighted(youtubeRow,dislike,.86f);
-        Button subscribe=largeAction("SUB","subscribe",11);
+        Button subscribe=iconAction("SUB","subscribe",9,DeckIcon.SUBSCRIBE,Color.BLACK,14,true);
         subscribe.setTextColor(Color.BLACK);
         subscribe.setBackground(round(Color.rgb(248,113,113),18));
         subscribe.setContentDescription("Subscribe to the selected YouTube channel");
         subscribe.setOnClickListener(v->youtubeAction("subscribe","Subscribe"));
         addWeighted(youtubeRow,subscribe,.72f);
-        altTab=largeAction("HOLD\nALT+TAB","alttab",10);
-        altTab.setSingleLine(false);
-        altTab.setLines(2);
+        altTab=iconAction("ALT+TAB","alttab",8,DeckIcon.ALT_TAB,Color.BLACK,14,true);
         altTab.setGravity(Gravity.CENTER);
         altTab.setTextColor(Color.BLACK);
         altTab.setBackground(round(Color.rgb(251,191,36),20));
@@ -286,7 +290,9 @@ public final class MainActivity extends Activity {
         youtubeVolumeRow.setPadding(dp(5),dp(1),dp(5),0);
         TextView youtubeVolumeLabel=text("YT VOL",9,Color.rgb(125,211,252),true);
         youtubeVolumeLabel.setGravity(Gravity.CENTER_VERTICAL);
-        youtubeVolumeRow.addView(youtubeVolumeLabel,new LinearLayout.LayoutParams(dp(48),-1));
+        youtubeVolumeLabel.setSingleLine(true);
+        setIcon(youtubeVolumeLabel,DeckIcon.VOLUME_UP,Color.rgb(125,211,252),12,false);
+        youtubeVolumeRow.addView(youtubeVolumeLabel,new LinearLayout.LayoutParams(dp(68),-1));
         youtubeVolume=new SeekBar(this);
         youtubeVolume.setMax(100);
         youtubeVolume.setProgress(50);
@@ -352,6 +358,7 @@ public final class MainActivity extends Activity {
         title.setText(newTitle);
         artist.setText(newArtist);
         play.setText(playing?"PAUSE":"PLAY");
+        setIcon(play,playing?DeckIcon.PAUSE:DeckIcon.PLAY,Color.BLACK,22,true);
         play.setOnClickListener(v->control(playing?"pause":"play"));
         durationMs=data.optLong("durationMs");
         positionMs=Math.min(data.optLong("positionMs"),durationMs);
@@ -547,8 +554,8 @@ public final class MainActivity extends Activity {
     private void takeScreenshot(){io.execute(()->{try{JSONObject captured=new JSONObject(post("/api/control/screenshot"));String provider=captured.optString("provider","PC");ui.post(()->Toast.makeText(this,"Screenshot saved by "+provider,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,"Screenshot failed: "+safeMessage(error),Toast.LENGTH_LONG).show());}});}
     private void moveScreen(){io.execute(()->{try{JSONObject moved=new JSONObject(post("/api/control/movescreen"));String display=moved.optString("display","next screen");ui.post(()->Toast.makeText(this,"Screen moved to "+display,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,"Could not move screen: "+safeMessage(error),Toast.LENGTH_LONG).show());}});}
     private void sendKeyCommand(String command){io.execute(()->{try{post("/api/control/"+command);}catch(Exception ignored){}});}
-    private void beginAltGesture(){if(altHeld)return;altHeld=true;altTab.setText("ALT\nHELD");altTab.setBackground(round(Color.rgb(248,113,113),20));previous.setText("<  WINDOW");next.setText("WINDOW  >");sendKeyCommand("altdown");}
-    private void endAltGesture(){if(!altHeld)return;altHeld=false;sendKeyCommand("altup");altTab.setText("HOLD\nALT+TAB");altTab.setBackground(round(Color.rgb(251,191,36),20));previous.setText("<  PREV");next.setText("NEXT  >");}
+    private void beginAltGesture(){if(altHeld)return;altHeld=true;altTab.setText("ALT HELD");altTab.setBackground(round(Color.rgb(248,113,113),20));previous.setText("WINDOW");next.setText("WINDOW");setIcon(previous,DeckIcon.ARROW_LEFT,INK,21,true);setIcon(next,DeckIcon.ARROW_RIGHT,INK,21,true);sendKeyCommand("altdown");}
+    private void endAltGesture(){if(!altHeld)return;altHeld=false;sendKeyCommand("altup");altTab.setText("ALT+TAB");altTab.setBackground(round(Color.rgb(251,191,36),20));previous.setText("PREV");next.setText("NEXT");setIcon(previous,DeckIcon.PREVIOUS,INK,21,true);setIcon(next,DeckIcon.NEXT,INK,21,true);}
     private void seekTo(long positionMs){io.execute(()->{try{post("/api/seek?positionMs="+positionMs);}catch(Exception ignored){}ui.postDelayed(()->refresh(false),180);});}
 
     private void openPcSettings(){
@@ -686,6 +693,8 @@ public final class MainActivity extends Activity {
     private String url(String path){return "http://"+base+":43821"+path;}
     private Button action(String label,String command){Button button=button(label);button.setOnClickListener(v->control(command));return button;}
     private Button largeAction(String label,String command,int size){Button button=action(label,command);button.setTextSize(size);button.setSingleLine(true);button.setPadding(dp(4),0,dp(4),0);return button;}
+    private Button iconAction(String label,String command,int size,DeckIcon icon,int color,int iconSize,boolean top){Button button=largeAction(label,command,size);setIcon(button,icon,color,iconSize,top);return button;}
+    private void setIcon(TextView view,DeckIcon icon,int color,int size,boolean top){Drawable drawable=new DeckIconDrawable(icon,color);drawable.setBounds(0,0,dp(size),dp(size));view.setCompoundDrawablePadding(dp(top?1:4));view.setGravity(Gravity.CENTER);view.setIncludeFontPadding(false);if(top)view.setCompoundDrawables(null,drawable,null,null);else view.setCompoundDrawables(drawable,null,null,null);}
     private void addWeighted(LinearLayout row,View view){addWeighted(row,view,1f);}
     private void addWeighted(LinearLayout row,View view,float weight){LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,-1,weight);params.setMargins(dp(2),0,dp(2),0);row.addView(view,params);}
     private String formatTime(long millis){long total=Math.max(0,millis/1000),hours=total/3600,minutes=(total%3600)/60,seconds=total%60;return hours>0?String.format(Locale.US,"%d:%02d:%02d",hours,minutes,seconds):String.format(Locale.US,"%d:%02d",minutes,seconds);}
@@ -694,6 +703,44 @@ public final class MainActivity extends Activity {
     private Button button(String value){Button button=new Button(this);button.setText(value);button.setTextColor(INK);button.setTextSize(11);button.setTypeface(Typeface.DEFAULT_BOLD);button.setMinHeight(0);button.setMinWidth(0);button.setPadding(dp(16),0,dp(16),0);button.setBackground(round(Color.rgb(47,44,67),20));return button;}
     private GradientDrawable round(int color,int radius){GradientDrawable drawable=new GradientDrawable();drawable.setColor(color);drawable.setCornerRadius(dp(radius));return drawable;}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
+
+    private static final class DeckIconDrawable extends Drawable {
+        private final DeckIcon icon;
+        private final Paint stroke=new Paint(Paint.ANTI_ALIAS_FLAG),fill=new Paint(Paint.ANTI_ALIAS_FLAG),digits=new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path path=new Path();
+        DeckIconDrawable(DeckIcon icon,int color){this.icon=icon;stroke.setColor(color);stroke.setStyle(Paint.Style.STROKE);stroke.setStrokeWidth(2.1f);stroke.setStrokeCap(Paint.Cap.ROUND);stroke.setStrokeJoin(Paint.Join.ROUND);fill.setColor(color);fill.setStyle(Paint.Style.FILL);digits.setColor(color);digits.setTypeface(Typeface.DEFAULT_BOLD);digits.setTextAlign(Paint.Align.CENTER);digits.setTextSize(7.5f);}
+        @Override public void draw(Canvas canvas){Rect b=getBounds();float scale=Math.min(b.width(),b.height())/24f;float ox=b.left+(b.width()-24*scale)/2f,oy=b.top+(b.height()-24*scale)/2f;canvas.save();canvas.translate(ox,oy);canvas.scale(scale,scale);path.reset();switch(icon){
+            case SETTINGS: canvas.drawCircle(12,12,4,stroke);canvas.drawCircle(12,12,8,stroke);for(int i=0;i<8;i++){double a=i*Math.PI/4;canvas.drawLine(12+(float)Math.cos(a)*8,12+(float)Math.sin(a)*8,12+(float)Math.cos(a)*10,12+(float)Math.sin(a)*10,stroke);}break;
+            case LIST: for(int y=6;y<=18;y+=6){canvas.drawCircle(4,y,1.4f,fill);canvas.drawLine(8,y,21,y,stroke);}break;
+            case PREVIOUS: canvas.drawRect(4,5,6.5f,19,fill);triangle(path,18,4.5f,18,19.5f,7,12);canvas.drawPath(path,fill);break;
+            case NEXT: canvas.drawRect(17.5f,5,20,19,fill);triangle(path,6,4.5f,6,19.5f,17,12);canvas.drawPath(path,fill);break;
+            case PLAY: triangle(path,7,4,7,20,20,12);canvas.drawPath(path,fill);break;
+            case PAUSE: canvas.drawRoundRect(new RectF(5,4,10,20),1,1,fill);canvas.drawRoundRect(new RectF(14,4,19,20),1,1,fill);break;
+            case ARROW_LEFT: canvas.drawLine(20,12,5,12,stroke);canvas.drawLine(5,12,11,6,stroke);canvas.drawLine(5,12,11,18,stroke);break;
+            case ARROW_RIGHT: canvas.drawLine(4,12,19,12,stroke);canvas.drawLine(19,12,13,6,stroke);canvas.drawLine(19,12,13,18,stroke);break;
+            case BACK10: seek(canvas,false);break;
+            case FORWARD10: seek(canvas,true);break;
+            case MUTE: speaker(canvas);canvas.drawLine(16,8,22,16,stroke);canvas.drawLine(22,8,16,16,stroke);break;
+            case VOLUME_DOWN: speaker(canvas);canvas.drawArc(new RectF(13,7,20,17),-48,96,false,stroke);break;
+            case VOLUME_UP: speaker(canvas);canvas.drawArc(new RectF(12,7,20,17),-48,96,false,stroke);canvas.drawArc(new RectF(12,3,24,21),-48,96,false,stroke);break;
+            case SHUFFLE: canvas.drawLine(3,6,7,6,stroke);canvas.drawLine(7,6,17,18,stroke);canvas.drawLine(17,18,21,18,stroke);canvas.drawLine(18,15,21,18,stroke);canvas.drawLine(18,21,21,18,stroke);canvas.drawLine(3,18,7,18,stroke);canvas.drawLine(7,18,17,6,stroke);canvas.drawLine(17,6,21,6,stroke);canvas.drawLine(18,3,21,6,stroke);canvas.drawLine(18,9,21,6,stroke);break;
+            case REPEAT: canvas.drawLine(5,6,19,6,stroke);canvas.drawLine(19,6,22,9,stroke);canvas.drawLine(19,6,22,3,stroke);canvas.drawLine(19,18,5,18,stroke);canvas.drawLine(5,18,2,15,stroke);canvas.drawLine(5,18,2,21,stroke);break;
+            case STOP: canvas.drawRoundRect(new RectF(5,5,19,19),2,2,fill);break;
+            case CAMERA: canvas.drawRoundRect(new RectF(2,6,22,20),3,3,stroke);canvas.drawRect(8,3.5f,16,7,fill);canvas.drawCircle(12,13,4,stroke);break;
+            case MONITOR: canvas.drawRoundRect(new RectF(2,3,22,17),2,2,stroke);canvas.drawLine(8,21,16,21,stroke);canvas.drawLine(12,17,12,21,stroke);canvas.drawLine(15,10,20,10,stroke);canvas.drawLine(20,10,17,7,stroke);canvas.drawLine(20,10,17,13,stroke);break;
+            case THUMB_UP: thumb(canvas,false);break;
+            case THUMB_DOWN: thumb(canvas,true);break;
+            case SUBSCRIBE: canvas.drawCircle(8,7,3,stroke);canvas.drawArc(new RectF(3,11,13,21),180,180,false,stroke);canvas.drawLine(17,8,17,18,stroke);canvas.drawLine(12,13,22,13,stroke);break;
+            case ALT_TAB: canvas.drawRoundRect(new RectF(2,4,16,15),2,2,stroke);canvas.drawRoundRect(new RectF(8,9,22,20),2,2,stroke);canvas.drawLine(5,18,11,18,stroke);canvas.drawLine(5,18,8,15,stroke);break;
+        }canvas.restore();}
+        private void seek(Canvas canvas,boolean forward){canvas.drawArc(new RectF(3,3,21,21),forward?-100:-80,forward?260:-260,false,stroke);if(forward){triangle(path,18,3,23,4,20,8);canvas.drawPath(path,fill);}else{triangle(path,6,3,1,4,4,8);canvas.drawPath(path,fill);}Paint.FontMetrics fm=digits.getFontMetrics();canvas.drawText("10",12,12-(fm.ascent+fm.descent)/2,digits);}
+        private void speaker(Canvas canvas){path.moveTo(3,9);path.lineTo(8,9);path.lineTo(14,4);path.lineTo(14,20);path.lineTo(8,15);path.lineTo(3,15);path.close();canvas.drawPath(path,fill);}
+        private void thumb(Canvas canvas,boolean down){canvas.save();if(down){canvas.rotate(180,12,12);}path.moveTo(4,10);path.lineTo(8,10);path.lineTo(11,4);path.quadTo(12,2,14,4);path.lineTo(14,8);path.lineTo(20,8);path.quadTo(22,8,21,11);path.lineTo(19,18);path.lineTo(8,18);path.lineTo(8,10);path.close();canvas.drawPath(path,stroke);canvas.drawLine(4,10,4,18,stroke);canvas.restore();}
+        private static void triangle(Path value,float ax,float ay,float bx,float by,float cx,float cy){value.moveTo(ax,ay);value.lineTo(bx,by);value.lineTo(cx,cy);value.close();}
+        @Override public void setAlpha(int alpha){stroke.setAlpha(alpha);fill.setAlpha(alpha);digits.setAlpha(alpha);}
+        @Override public void setColorFilter(ColorFilter filter){stroke.setColorFilter(filter);fill.setColorFilter(filter);digits.setColorFilter(filter);}
+        @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
+    }
 
     private static final class MediaChapter {
         final long positionMs;
@@ -726,20 +773,21 @@ public final class MainActivity extends Activity {
     }
 
     private final class SwipeReplayView extends View {
-        private final Paint track=new Paint(Paint.ANTI_ALIAS_FLAG),fill=new Paint(Paint.ANTI_ALIAS_FLAG),handle=new Paint(Paint.ANTI_ALIAS_FLAG),label=new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint track=new Paint(Paint.ANTI_ALIAS_FLAG),fill=new Paint(Paint.ANTI_ALIAS_FLAG),handle=new Paint(Paint.ANTI_ALIAS_FLAG),label=new Paint(Paint.ANTI_ALIAS_FLAG),replayGlyph=new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Runnable activate;
         private float progress,startY;
         private boolean tracking,complete;
         private String readyText="CHECKING GAME REPLAY...",completeText="GAME REPLAY REQUEST SENT";
-        SwipeReplayView(Runnable activate){super(MainActivity.this);this.activate=activate;setFocusable(true);fill.setColor(Color.rgb(34,197,94));handle.setColor(Color.rgb(236,253,245));label.setColor(Color.WHITE);label.setTextAlign(Paint.Align.CENTER);label.setTypeface(Typeface.DEFAULT_BOLD);label.setTextSize(getResources().getDisplayMetrics().scaledDensity*14);setReplayState(false,false,120);}
+        SwipeReplayView(Runnable activate){super(MainActivity.this);this.activate=activate;setFocusable(true);fill.setColor(Color.rgb(34,197,94));handle.setColor(Color.rgb(236,253,245));label.setColor(Color.WHITE);label.setTextAlign(Paint.Align.CENTER);label.setTypeface(Typeface.DEFAULT_BOLD);label.setTextSize(getResources().getDisplayMetrics().scaledDensity*14);replayGlyph.setStyle(Paint.Style.STROKE);replayGlyph.setStrokeWidth(dp(2));replayGlyph.setStrokeCap(Paint.Cap.ROUND);setReplayState(false,false,120);}
         void setReplayState(boolean available,boolean enabled,int seconds){
             track.setColor(!available?Color.rgb(69,36,36):enabled?Color.rgb(20,83,45):Color.rgb(120,53,15));
+            replayGlyph.setColor(!available?Color.rgb(107,114,128):enabled?Color.rgb(20,83,45):Color.rgb(120,53,15));
             readyText=!available?"GAME REPLAY UNAVAILABLE":enabled?"RECORD LAST "+formatTime(seconds*1000L)+" OF GAME  >":"SWIPE TO ARM GAME REPLAY  >";
             completeText=enabled?"GAME CLIP REQUEST SENT":"GAME REPLAY ARM REQUEST SENT";
             setContentDescription(readyText);
             invalidate();
         }
-        @Override protected void onDraw(Canvas canvas){super.onDraw(canvas);float radius=getHeight()/2f;RectF bounds=new RectF(0,0,getWidth(),getHeight());canvas.drawRoundRect(bounds,radius,radius,track);float knob=dp(22),left=knob,right=getWidth()-knob,x=left+(right-left)*progress;if(progress>0){RectF active=new RectF(0,0,x,getHeight());canvas.drawRoundRect(active,radius,radius,fill);}canvas.drawCircle(x,getHeight()/2f,knob,handle);String text=complete?completeText:tracking?"KEEP SWIPING  "+Math.round(progress*100)+"%":readyText;Paint.FontMetrics metrics=label.getFontMetrics();canvas.drawText(text,getWidth()/2f,getHeight()/2f-(metrics.ascent+metrics.descent)/2,label);}
+        @Override protected void onDraw(Canvas canvas){super.onDraw(canvas);float radius=getHeight()/2f;RectF bounds=new RectF(0,0,getWidth(),getHeight());canvas.drawRoundRect(bounds,radius,radius,track);float knob=dp(22),left=knob,right=getWidth()-knob,x=left+(right-left)*progress;if(progress>0){RectF active=new RectF(0,0,x,getHeight());canvas.drawRoundRect(active,radius,radius,fill);}float center=getHeight()/2f;canvas.drawCircle(x,center,knob,handle);float glyph=dp(10);canvas.drawArc(new RectF(x-glyph,center-glyph,x+glyph,center+glyph),35,285,false,replayGlyph);Path arrow=new Path();arrow.moveTo(x+glyph*.82f,center-glyph*.25f);arrow.lineTo(x+glyph*.95f,center-glyph*.85f);arrow.lineTo(x+glyph*.35f,center-glyph*.68f);arrow.close();replayGlyph.setStyle(Paint.Style.FILL);canvas.drawPath(arrow,replayGlyph);replayGlyph.setStyle(Paint.Style.STROKE);String text=complete?completeText:tracking?"KEEP SWIPING  "+Math.round(progress*100)+"%":readyText;Paint.FontMetrics metrics=label.getFontMetrics();canvas.drawText(text,getWidth()/2f,getHeight()/2f-(metrics.ascent+metrics.descent)/2,label);}
         @Override public boolean onTouchEvent(MotionEvent event){float knob=dp(22),usable=Math.max(1,getWidth()-2*knob);switch(event.getActionMasked()){case MotionEvent.ACTION_DOWN:if(complete||event.getX()>getWidth()*.30f)return true;tracking=true;startY=event.getY();progress=Math.max(0,Math.min(1,(event.getX()-knob)/usable));getParent().requestDisallowInterceptTouchEvent(true);invalidate();return true;case MotionEvent.ACTION_MOVE:if(!tracking)return true;if(Math.abs(event.getY()-startY)>dp(42)){cancelSwipe();return true;}progress=Math.max(0,Math.min(1,(event.getX()-knob)/usable));invalidate();return true;case MotionEvent.ACTION_UP:if(tracking&&progress>=.85f){tracking=false;complete=true;progress=1;performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);activate.run();invalidate();postDelayed(()->{complete=false;progress=0;invalidate();},2200);}else cancelSwipe();getParent().requestDisallowInterceptTouchEvent(false);return true;case MotionEvent.ACTION_CANCEL:cancelSwipe();getParent().requestDisallowInterceptTouchEvent(false);return true;default:return true;}}
         private void cancelSwipe(){tracking=false;progress=0;invalidate();}
     }
