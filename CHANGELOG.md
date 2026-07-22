@@ -6,6 +6,7 @@ All notable MASHR Media Deck changes are recorded here.
 
 ### Documentation
 
+- Released MASHR Media Deck as free and open-source software under the MIT License.
 - Added a six-screen real Pixel 7 product tour covering extension-free YouTube scenes, chapter jumping, Alt+Tab, guarded replay, local pairing, and another Windows media session.
 - Made the extension boundary explicit: the complete core deck is extension-free; only the optional related-video grid uses the helper.
 - Updated press copy and social artwork around the extension-free core experience.
