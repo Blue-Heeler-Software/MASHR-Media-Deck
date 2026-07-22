@@ -15,7 +15,7 @@
 
 MASHR Media Deck is a second-screen Android remote built for PC gamers who do not want to Alt+Tab out of a game just to manage music or video. The Pixel shows the selected Windows media session, artwork, live timeline, chapter markers, and large controls while the game keeps focus.
 
-![MASHR Media Deck 1.4.12 showing split annotation seeking and the rebalanced control rows on a Pixel 7](docs/images/pixel7-annotation-seek-v1412.png)
+![MASHR Media Deck 1.9.11 showing split annotation seeking and the rebalanced control rows on a Pixel 7](docs/images/pixel7-annotation-seek-v1911.png)
 
 ## No extension needed
 
@@ -42,7 +42,7 @@ See the [screenshot gallery](docs/SCREENSHOTS.md) and [press kit](docs/PRESS-KIT
 
 ## See it in action
 
-Every screen here is a real Pixel 7 capture, not a drawn app mock-up. The lead scene-navigation capture is from 1.4.12; supporting interaction captures are retained from 1.4.8.
+Every screen here is a real Pixel 7 capture, not a drawn app mock-up. The lead scene-navigation capture is from 1.9.11; supporting interaction captures are retained from 1.4.8.
 
 [Watch the rebuilt 30-second VLC demo clip](docs/media/mashr-media-deck-demo-v148.mp4), whose artwork is composed from the same real Pixel capture.
 
@@ -56,7 +56,7 @@ Every screen here is a real Pixel 7 capture, not a drawn app mock-up. The lead s
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/pixel7-annotation-seek-v1412.png" alt="Split blue scene jumps and rebalanced media controls on MASHR Media Deck 1.4.12"><br>
+      <img src="docs/images/pixel7-annotation-seek-v1911.png" alt="Split blue scene jumps and rebalanced media controls on MASHR Media Deck 1.9.11"><br>
       <strong>Annotations are one blue tap away.</strong><br>
       Blue Scene edges jump to adjacent creator annotations; the dark Back/Ahead bodies use the default skip from PC Settings.
     </td>
@@ -235,7 +235,7 @@ Both scaffolds emit the shared `/api/now` snapshot shape and expose a small allo
 
 ## Project status
 
-MASHR Media Deck `1.4.12` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. Linux and macOS are contributor scaffolds, not released companions. The project has no analytics, cloud backend, advertising, or account system.
+MASHR Media Deck `1.9.11` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. Linux and macOS are contributor scaffolds, not released companions. The project has no analytics, cloud backend, advertising, or account system.
 
 Release history is in [CHANGELOG.md](CHANGELOG.md).
 

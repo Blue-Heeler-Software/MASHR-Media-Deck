@@ -4,7 +4,7 @@
 
 **Product:** MASHR Media Deck<br>
 **Category:** Local second-screen media remote for PC gamers<br>
-**Current release:** 1.4.12 developer preview<br>
+**Current release:** 1.9.11 developer preview<br>
 **Platforms:** Android 8+ phone; Windows 10/11 PC companion; Linux/macOS contributor scaffolds<br>
 **Developer:** Blue Heeler Software
 
@@ -52,7 +52,7 @@ The core deck needs no browser extension. YouTube artwork, metadata, live progre
 
 ### Extension-free YouTube deck
 
-![Split scene jumps and rebalanced media controls on the main deck](images/pixel7-annotation-seek-v1412.png)
+![Split scene jumps and rebalanced media controls on the main deck](images/pixel7-annotation-seek-v1911.png)
 
 **Caption:** MASHR finds artwork, live time, and creator chapters without a browser extension; blue Scene edges jump between annotations while dark Back/Ahead uses the user's default skip.
 
