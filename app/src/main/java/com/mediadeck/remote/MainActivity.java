@@ -63,12 +63,13 @@ public final class MainActivity extends Activity {
     private final ExecutorService thumbnails=Executors.newFixedThreadPool(3);
     private final Runnable poll=()->refresh(false);
     private ImageView artwork;
-    private TextView source,title,artist,status,elapsed,remaining,scenes;
+    private TextView source,title,artist,status,elapsed,remaining,scenes,youtubeVolumeValue;
     private Button previous,play,next,shuffle,repeat,altTab;
     private ChapterSeekBar timeline;
+    private SeekBar youtubeVolume;
     private SwipeReplayView replay;
     private String base="",deviceKey="",lastTrack="";
-    private boolean running,requestPending,userSeeking,altHeld,youtubeAvailable,artworkPending,artworkLoaded,replayAvailable,replayEnabled;
+    private boolean running,requestPending,userSeeking,youtubeVolumeSeeking,altHeld,youtubeAvailable,artworkPending,artworkLoaded,replayAvailable,replayEnabled;
     private long durationMs,positionMs,lastArtworkAttemptMs;
     private int replaySeconds=120;
     private final ArrayList<MediaChapter> chapters=new ArrayList<>();
@@ -90,7 +91,7 @@ public final class MainActivity extends Activity {
         LinearLayout root=new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
-        final int side=dp(16),top=dp(10),bottom=dp(14);
+        final int side=dp(6),top=dp(10),bottom=dp(14);
         root.setPadding(side,top,side,bottom);
         root.setOnApplyWindowInsetsListener((v,insets)->{
             int insetTop,insetBottom;
@@ -124,7 +125,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout card=new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(14),dp(9),dp(14),dp(9));
+        card.setPadding(dp(8),dp(9),dp(8),dp(9));
         card.setBackground(round(CARD,22));
         artwork=new ImageView(this);
         artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -148,6 +149,7 @@ public final class MainActivity extends Activity {
         source.setPadding(0,dp(7),0,dp(2));
         card.addView(source);
         title=text("Waiting for PC media",22,INK,true);
+        title.setMinLines(2);
         title.setMaxLines(2);
         card.addView(title);
         artist=text("Start YouTube Music or another player on the PC",14,MUTED,false);
@@ -193,22 +195,22 @@ public final class MainActivity extends Activity {
         next=largeAction("NEXT  >","next",14);
         next.setOnClickListener(v->{if(altHeld)sendKeyCommand("arrowright");else control("next");});
         addWeighted(transport,next);
-        card.addView(transport,new LinearLayout.LayoutParams(-1,dp(60)));
+        card.addView(transport,new LinearLayout.LayoutParams(-1,dp(64)));
 
         LinearLayout seekRow=new LinearLayout(this);
         seekRow.setGravity(Gravity.CENTER);
         seekRow.setPadding(0,dp(5),0,0);
         addWeighted(seekRow,largeAction("-10 SEC","back10",12));
         addWeighted(seekRow,largeAction("+10 SEC","forward10",12));
-        card.addView(seekRow,new LinearLayout.LayoutParams(-1,dp(40)));
+        card.addView(seekRow,new LinearLayout.LayoutParams(-1,dp(44)));
 
         LinearLayout volumeRow=new LinearLayout(this);
         volumeRow.setGravity(Gravity.CENTER);
-        volumeRow.setPadding(0,dp(7),0,0);
-        addWeighted(volumeRow,largeAction("MUTE","mute",13));
-        addWeighted(volumeRow,largeAction("VOL  -","volumedown",13));
-        addWeighted(volumeRow,largeAction("VOL  +","volumeup",13));
-        card.addView(volumeRow,new LinearLayout.LayoutParams(-1,dp(50)));
+        volumeRow.setPadding(0,dp(5),0,0);
+        addWeighted(volumeRow,largeAction("MUTE","mute",12),.75f);
+        addWeighted(volumeRow,largeAction("VOL  -","volumedown",14),1.125f);
+        addWeighted(volumeRow,largeAction("VOL  +","volumeup",14),1.125f);
+        card.addView(volumeRow,new LinearLayout.LayoutParams(-1,dp(60)));
 
         LinearLayout modeRow=new LinearLayout(this);
         modeRow.setGravity(Gravity.CENTER);
@@ -220,32 +222,92 @@ public final class MainActivity extends Activity {
         Button stop=largeAction("STOP","stop",13);
         stop.setTextColor(Color.rgb(254,202,202));
         addWeighted(modeRow,stop);
-        card.addView(modeRow,new LinearLayout.LayoutParams(-1,dp(50)));
+        card.addView(modeRow,new LinearLayout.LayoutParams(-1,dp(54)));
 
-        Button moveScreen=largeAction("MOVE MEDIA TO NEXT SCREEN  >","movescreen",13);
+        LinearLayout utilityRow=new LinearLayout(this);
+        utilityRow.setGravity(Gravity.CENTER);
+        utilityRow.setPadding(0,dp(5),0,0);
+        Button screenshot=largeAction("SCREEN\nSHOT","screenshot",12);
+        screenshot.setSingleLine(false);
+        screenshot.setLines(2);
+        screenshot.setGravity(Gravity.CENTER);
+        screenshot.setTextColor(Color.BLACK);
+        screenshot.setBackground(round(Color.rgb(196,181,253),20));
+        screenshot.setContentDescription("Save a screenshot of the PC using NVIDIA Overlay or Windows");
+        screenshot.setOnClickListener(v->takeScreenshot());
+        addWeighted(utilityRow,screenshot,.2506f);
+        utilityRow.addView(new View(this),new LinearLayout.LayoutParams(dp(4),1));
+        Button moveScreen=largeAction("MOVE SCREEN  >","movescreen",12);
         moveScreen.setTextColor(Color.BLACK);
         moveScreen.setBackground(round(Color.rgb(125,211,252),20));
         moveScreen.setContentDescription("Move the selected PC media window to the next monitor");
         moveScreen.setOnClickListener(v->moveScreen());
-        LinearLayout.LayoutParams moveLp=new LinearLayout.LayoutParams(-1,dp(46));
-        moveLp.setMargins(dp(3),dp(5),dp(3),0);
-        card.addView(moveScreen,moveLp);
+        addWeighted(utilityRow,moveScreen,.7494f);
+        card.addView(utilityRow,new LinearLayout.LayoutParams(-1,dp(57)));
 
-        altTab=largeAction("HOLD ALT + TAB  /  TAP PREV OR NEXT","alttab",13);
+        LinearLayout youtubeRow=new LinearLayout(this);
+        youtubeRow.setGravity(Gravity.CENTER);
+        youtubeRow.setPadding(0,dp(5),0,0);
+        Button like=largeAction("LIKE","like",11);
+        like.setTextColor(Color.BLACK);
+        like.setBackground(round(Color.rgb(134,239,172),18));
+        like.setContentDescription("Like or unlike the selected YouTube video");
+        like.setOnClickListener(v->youtubeAction("like","Like"));
+        addWeighted(youtubeRow,like,1.15f);
+        Button dislike=largeAction("DISLIKE","dislike",10);
+        dislike.setTextColor(Color.BLACK);
+        dislike.setBackground(round(Color.rgb(254,202,202),18));
+        dislike.setContentDescription("Dislike or remove the dislike from the selected YouTube video");
+        dislike.setOnClickListener(v->youtubeAction("dislike","Dislike"));
+        addWeighted(youtubeRow,dislike,.86f);
+        Button subscribe=largeAction("SUB","subscribe",11);
+        subscribe.setTextColor(Color.BLACK);
+        subscribe.setBackground(round(Color.rgb(248,113,113),18));
+        subscribe.setContentDescription("Subscribe to the selected YouTube channel");
+        subscribe.setOnClickListener(v->youtubeAction("subscribe","Subscribe"));
+        addWeighted(youtubeRow,subscribe,.72f);
+        altTab=largeAction("HOLD\nALT+TAB","alttab",10);
+        altTab.setSingleLine(false);
+        altTab.setLines(2);
+        altTab.setGravity(Gravity.CENTER);
         altTab.setTextColor(Color.BLACK);
         altTab.setBackground(round(Color.rgb(251,191,36),20));
+        altTab.setContentDescription("Hold Alt Tab, then tap Previous or Next with another finger to choose a PC window");
         altTab.setOnTouchListener((v,event)->{
             if(event.getActionMasked()==MotionEvent.ACTION_DOWN){v.getParent().requestDisallowInterceptTouchEvent(true);beginAltGesture();return true;}
             if(event.getActionMasked()==MotionEvent.ACTION_UP||event.getActionMasked()==MotionEvent.ACTION_CANCEL){v.getParent().requestDisallowInterceptTouchEvent(false);endAltGesture();return true;}
             return true;
         });
-        LinearLayout.LayoutParams altLp=new LinearLayout.LayoutParams(-1,dp(52));
-        altLp.setMargins(dp(3),dp(5),dp(3),0);
-        card.addView(altTab,altLp);
+        addWeighted(youtubeRow,altTab,1.16f);
+        card.addView(youtubeRow,new LinearLayout.LayoutParams(-1,dp(47)));
+
+        LinearLayout youtubeVolumeRow=new LinearLayout(this);
+        youtubeVolumeRow.setGravity(Gravity.CENTER_VERTICAL);
+        youtubeVolumeRow.setPadding(dp(5),dp(1),dp(5),0);
+        TextView youtubeVolumeLabel=text("YT VOL",9,Color.rgb(125,211,252),true);
+        youtubeVolumeLabel.setGravity(Gravity.CENTER_VERTICAL);
+        youtubeVolumeRow.addView(youtubeVolumeLabel,new LinearLayout.LayoutParams(dp(48),-1));
+        youtubeVolume=new SeekBar(this);
+        youtubeVolume.setMax(100);
+        youtubeVolume.setProgress(50);
+        youtubeVolume.setPadding(0,0,0,0);
+        youtubeVolume.setProgressTintList(android.content.res.ColorStateList.valueOf(Color.rgb(125,211,252)));
+        youtubeVolume.setThumbTintList(android.content.res.ColorStateList.valueOf(Color.rgb(125,211,252)));
+        youtubeVolume.setContentDescription("YouTube player volume");
+        youtubeVolume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar bar,int progress,boolean fromUser){if(fromUser)youtubeVolumeValue.setText(progress+"%");}
+            public void onStartTrackingTouch(SeekBar bar){youtubeVolumeSeeking=true;}
+            public void onStopTrackingTouch(SeekBar bar){youtubeVolumeSeeking=false;setYoutubeVolume(bar.getProgress());}
+        });
+        youtubeVolumeRow.addView(youtubeVolume,new LinearLayout.LayoutParams(0,-1,1));
+        youtubeVolumeValue=text("--",9,MUTED,true);
+        youtubeVolumeValue.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
+        youtubeVolumeRow.addView(youtubeVolumeValue,new LinearLayout.LayoutParams(dp(38),-1));
+        card.addView(youtubeVolumeRow,new LinearLayout.LayoutParams(-1,dp(23)));
 
         replay=new SwipeReplayView(this::handleReplayGesture);
-        LinearLayout.LayoutParams replayLp=new LinearLayout.LayoutParams(-1,dp(56));
-        replayLp.setMargins(dp(3),dp(5),dp(3),0);
+        LinearLayout.LayoutParams replayLp=new LinearLayout.LayoutParams(-1,dp(62));
+        replayLp.setMargins(dp(2),dp(5),dp(2),0);
         card.addView(replay,replayLp);
         root.addView(card);
         setContentView(root);
@@ -303,6 +365,10 @@ public final class MainActivity extends Activity {
         replayEnabled=data.optBoolean("instantReplayEnabled",false);
         replaySeconds=Math.max(15,data.optInt("instantReplaySeconds",120));
         replay.setReplayState(replayAvailable,replayEnabled,replaySeconds);
+        int playerVolume=data.optInt("youtubeVolume",-1);
+        youtubeVolume.setEnabled(playerVolume>=0);
+        youtubeVolume.setAlpha(playerVolume>=0?1f:.35f);
+        if(!youtubeVolumeSeeking){youtubeVolumeValue.setText(playerVolume>=0?playerVolume+"%":"--");if(playerVolume>=0)youtubeVolume.setProgress(playerVolume);}
         shuffle.setText(data.optBoolean("shuffle")?"SHUFFLE ON":"SHUFFLE");
         String repeatMode=data.optString("repeat","none");
         repeat.setText(repeatMode.equals("track")?"REPEAT 1":repeatMode.equals("list")?"REPEAT ALL":"REPEAT");
@@ -474,10 +540,13 @@ public final class MainActivity extends Activity {
     }
 
     private void control(String command){io.execute(()->{try{post("/api/control/"+command);}catch(Exception ignored){}ui.postDelayed(()->refresh(false),180);});}
-    private void moveScreen(){io.execute(()->{try{JSONObject moved=new JSONObject(post("/api/control/movescreen"));String display=moved.optString("display","next screen");ui.post(()->Toast.makeText(this,"Media moved to "+display,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,"Could not move media: "+safeMessage(error),Toast.LENGTH_LONG).show());}});}
+    private void youtubeAction(String command,String label){io.execute(()->{try{JSONObject result=new JSONObject(post("/api/control/"+command));String message=result.optString("message",label+" sent to YouTube");ui.post(()->Toast.makeText(this,message,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,label+" unavailable: "+apiError(error),Toast.LENGTH_LONG).show());}});}
+    private void setYoutubeVolume(int level){io.execute(()->{try{JSONObject result=new JSONObject(post("/api/youtube/volume?level="+level));int applied=result.optInt("volume",level);ui.post(()->youtubeVolumeValue.setText(applied+"%"));}catch(Exception error){ui.post(()->Toast.makeText(this,"YouTube volume unavailable: "+apiError(error),Toast.LENGTH_LONG).show());}});}
+    private void takeScreenshot(){io.execute(()->{try{JSONObject captured=new JSONObject(post("/api/control/screenshot"));String provider=captured.optString("provider","PC");ui.post(()->Toast.makeText(this,"Screenshot saved by "+provider,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,"Screenshot failed: "+safeMessage(error),Toast.LENGTH_LONG).show());}});}
+    private void moveScreen(){io.execute(()->{try{JSONObject moved=new JSONObject(post("/api/control/movescreen"));String display=moved.optString("display","next screen");ui.post(()->Toast.makeText(this,"Screen moved to "+display,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,"Could not move screen: "+safeMessage(error),Toast.LENGTH_LONG).show());}});}
     private void sendKeyCommand(String command){io.execute(()->{try{post("/api/control/"+command);}catch(Exception ignored){}});}
-    private void beginAltGesture(){if(altHeld)return;altHeld=true;altTab.setText("ALT HELD  /  CHOOSE A WINDOW");altTab.setBackground(round(Color.rgb(248,113,113),20));previous.setText("<  WINDOW");next.setText("WINDOW  >");sendKeyCommand("altdown");}
-    private void endAltGesture(){if(!altHeld)return;altHeld=false;sendKeyCommand("altup");altTab.setText("HOLD ALT + TAB  /  TAP PREV OR NEXT");altTab.setBackground(round(Color.rgb(251,191,36),20));previous.setText("<  PREV");next.setText("NEXT  >");}
+    private void beginAltGesture(){if(altHeld)return;altHeld=true;altTab.setText("ALT\nHELD");altTab.setBackground(round(Color.rgb(248,113,113),20));previous.setText("<  WINDOW");next.setText("WINDOW  >");sendKeyCommand("altdown");}
+    private void endAltGesture(){if(!altHeld)return;altHeld=false;sendKeyCommand("altup");altTab.setText("HOLD\nALT+TAB");altTab.setBackground(round(Color.rgb(251,191,36),20));previous.setText("<  PREV");next.setText("NEXT  >");}
     private void seekTo(long positionMs){io.execute(()->{try{post("/api/seek?positionMs="+positionMs);}catch(Exception ignored){}ui.postDelayed(()->refresh(false),180);});}
 
     private void openPcSettings(){
@@ -610,11 +679,13 @@ public final class MainActivity extends Activity {
     private void clearPairing(){deviceKey="";getPreferences(0).edit().remove("deviceKey").apply();}
     private boolean isUnauthorized(Exception error){return error.getMessage()!=null&&(error.getMessage().contains("HTTP 401")||error.getMessage().contains("HTTP 409"));}
     private String safeMessage(Exception error){String message=error.getMessage();if(message==null)return "unknown error";return message.length()>120?message.substring(0,120):message;}
+    private String apiError(Exception error){String message=error.getMessage();if(message==null)return "unknown error";int jsonStart=message.indexOf('{');if(jsonStart>=0){try{String detail=new JSONObject(message.substring(jsonStart)).optString("error","");if(!detail.isEmpty())return detail;}catch(Exception ignored){}}return safeMessage(error);}
     private String cleanAddress(String value){String result=value.trim().replaceFirst("^https?://","");int slash=result.indexOf('/');if(slash>=0)result=result.substring(0,slash);int colon=result.indexOf(':');if(colon>=0)result=result.substring(0,colon);return result;}
     private String url(String path){return "http://"+base+":43821"+path;}
     private Button action(String label,String command){Button button=button(label);button.setOnClickListener(v->control(command));return button;}
     private Button largeAction(String label,String command,int size){Button button=action(label,command);button.setTextSize(size);button.setSingleLine(true);button.setPadding(dp(4),0,dp(4),0);return button;}
-    private void addWeighted(LinearLayout row,View view){LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,-1,1);params.setMargins(dp(3),0,dp(3),0);row.addView(view,params);}
+    private void addWeighted(LinearLayout row,View view){addWeighted(row,view,1f);}
+    private void addWeighted(LinearLayout row,View view,float weight){LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,-1,weight);params.setMargins(dp(2),0,dp(2),0);row.addView(view,params);}
     private String formatTime(long millis){long total=Math.max(0,millis/1000),hours=total/3600,minutes=(total%3600)/60,seconds=total%60;return hours>0?String.format(Locale.US,"%d:%02d:%02d",hours,minutes,seconds):String.format(Locale.US,"%d:%02d",minutes,seconds);}
     private String friendlySource(String value){String lower=value.toLowerCase(Locale.US);if(lower.contains("vlc"))return "VLC / PC";if(lower.contains("brave"))return "BRAVE / PC";if(lower.contains("chrome"))return "CHROME / PC";if(lower.contains("spotify"))return "SPOTIFY / PC";return "PC MEDIA";}
     private TextView text(String value,int size,int color,boolean bold){TextView view=new TextView(this);view.setText(value);view.setTextSize(size);view.setTextColor(color);view.setTypeface(Typeface.DEFAULT,bold?Typeface.BOLD:Typeface.NORMAL);view.setLineSpacing(0,1.1f);return view;}
@@ -657,12 +728,12 @@ public final class MainActivity extends Activity {
         private final Runnable activate;
         private float progress,startY;
         private boolean tracking,complete;
-        private String readyText="CHECKING NVIDIA REPLAY...",completeText="REPLAY REQUEST SENT";
+        private String readyText="CHECKING GAME REPLAY...",completeText="GAME REPLAY REQUEST SENT";
         SwipeReplayView(Runnable activate){super(MainActivity.this);this.activate=activate;setFocusable(true);fill.setColor(Color.rgb(34,197,94));handle.setColor(Color.rgb(236,253,245));label.setColor(Color.WHITE);label.setTextAlign(Paint.Align.CENTER);label.setTypeface(Typeface.DEFAULT_BOLD);label.setTextSize(getResources().getDisplayMetrics().scaledDensity*14);setReplayState(false,false,120);}
         void setReplayState(boolean available,boolean enabled,int seconds){
             track.setColor(!available?Color.rgb(69,36,36):enabled?Color.rgb(20,83,45):Color.rgb(120,53,15));
-            readyText=!available?"NVIDIA REPLAY UNAVAILABLE":enabled?"SWIPE TO SAVE "+formatTime(seconds*1000L)+"  >":"SWIPE TO ARM REPLAY  >";
-            completeText=enabled?"REPLAY SAVE REQUEST SENT":"REPLAY ARM REQUEST SENT";
+            readyText=!available?"GAME REPLAY UNAVAILABLE":enabled?"RECORD LAST "+formatTime(seconds*1000L)+" OF GAME  >":"SWIPE TO ARM GAME REPLAY  >";
+            completeText=enabled?"GAME CLIP REQUEST SENT":"GAME REPLAY ARM REQUEST SENT";
             setContentDescription(readyText);
             invalidate();
         }

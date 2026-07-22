@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "MASHR Media Deck YouTube Bridge",
   "version": "1.1.0",
-  "description": "Shares the current YouTube tab's visible recommendations with the local MASHR Media Deck companion.",
+  "description": "Optional: adds only the related-video grid to the extension-free MASHR Media Deck core.",
   "host_permissions": [
     "http://127.0.0.1:43821/*"
   ],

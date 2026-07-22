@@ -173,15 +173,16 @@ app.MapGet("/api/now", async (HttpContext context) =>
     var replay = NvidiaReplayState.Read();
     var session = await Session();
     if (preferVlc && VlcProvider.TryInfo(out var vlc))
-        return Results.Json(new { title = vlc.Title, artist = "VLC media player", source = "VLC.PC", playing = vlc.Playing, positionMs = 0L, durationMs = 0L, shuffle = false, repeat = "none", youtubeAvailable = youtube.IsFresh, chapters = Array.Empty<MediaChapter>(), instantReplayAvailable = replay.Available, instantReplayEnabled = replay.Enabled, instantReplaySeconds = replay.BufferSeconds });
+        return Results.Json(new { title = vlc.Title, artist = "VLC media player", source = "VLC.PC", playing = vlc.Playing, positionMs = 0L, durationMs = 0L, shuffle = false, repeat = "none", youtubeAvailable = youtube.IsFresh, youtubeVolume = -1, chapters = Array.Empty<MediaChapter>(), instantReplayAvailable = replay.Available, instantReplayEnabled = replay.Enabled, instantReplaySeconds = replay.BufferSeconds });
     if (session is null)
-        return Results.Json(new { title = "Nothing playing", artist = "Start YouTube Music or another player on this PC", source = "Windows", playing = false, positionMs = 0L, durationMs = 0L, shuffle = false, repeat = "none", youtubeAvailable = youtube.IsFresh, chapters = Array.Empty<MediaChapter>(), instantReplayAvailable = replay.Available, instantReplayEnabled = replay.Enabled, instantReplaySeconds = replay.BufferSeconds });
+        return Results.Json(new { title = "Nothing playing", artist = "Start YouTube Music or another player on this PC", source = "Windows", playing = false, positionMs = 0L, durationMs = 0L, shuffle = false, repeat = "none", youtubeAvailable = youtube.IsFresh, youtubeVolume = -1, chapters = Array.Empty<MediaChapter>(), instantReplayAvailable = replay.Available, instantReplayEnabled = replay.Enabled, instantReplaySeconds = replay.BufferSeconds });
     var media = await session.TryGetMediaPropertiesAsync();
     var playback = session.GetPlaybackInfo();
     var timeline = session.GetTimelineProperties();
     var duration = Math.Max(0, (timeline.EndTime - timeline.StartTime).Ticks / TimeSpan.TicksPerMillisecond);
     var position = TimelineClock.PositionMs(playback, timeline);
     var chapters = await youtubeChapters.GetAsync(session.SourceAppUserModelId, media.Title, duration, context.RequestAborted);
+    var youtubeVolume = YouTubeActions.ReadVolume(session.SourceAppUserModelId, media.Title);
     return Results.Json(new
     {
         title = media.Title,
@@ -193,6 +194,7 @@ app.MapGet("/api/now", async (HttpContext context) =>
         shuffle = playback.IsShuffleActive ?? false,
         repeat = (playback.AutoRepeatMode ?? MediaPlaybackAutoRepeatMode.None).ToString().ToLowerInvariant(),
         youtubeAvailable = youtube.IsFresh,
+        youtubeVolume,
         chapters,
         instantReplayAvailable = replay.Available,
         instantReplayEnabled = replay.Enabled,
@@ -252,6 +254,17 @@ app.MapPost("/api/seek", async (long positionMs) =>
 app.MapPost("/api/control/{command}", async (string command) =>
 {
     if (command == "alttab") { MediaKeys.AltTab(); return Results.Ok(); }
+    if (command == "screenshot")
+    {
+        var screenshotKeys = NvidiaReplayState.Read().ScreenshotKeys;
+        if (screenshotKeys.Length > 0)
+        {
+            MediaKeys.Hotkey(screenshotKeys);
+            return Results.Json(new { action = "captured", provider = "NVIDIA Overlay" });
+        }
+        MediaKeys.Hotkey([0x5B, 0x2C]);
+        return Results.Json(new { action = "captured", provider = "Windows" });
+    }
     if (command == "instantreplay")
     {
         var replay = NvidiaReplayState.Read();
@@ -277,6 +290,16 @@ app.MapPost("/api/control/{command}", async (string command) =>
         return Results.Ok();
     }
     var session = await Session();
+    if (command is "like" or "dislike" or "subscribe")
+    {
+        if (preferVlc || session is null)
+            return Results.Json(new { error = "Select a YouTube or YouTube Music session first." }, statusCode: StatusCodes.Status409Conflict);
+        var media = await session.TryGetMediaPropertiesAsync();
+        var result = YouTubeActions.Invoke(session.SourceAppUserModelId, media.Title, command);
+        return result.Success
+            ? Results.Json(new { action = result.Action, message = result.Message })
+            : Results.Json(new { error = result.Message }, statusCode: StatusCodes.Status409Conflict);
+    }
     if (command == "movescreen")
     {
         WindowMoveResult move;
@@ -313,6 +336,19 @@ app.MapPost("/api/control/{command}", async (string command) =>
 
 app.MapGet("/api/youtube/suggestions", () => Results.Json(youtube.Snapshot()));
 app.MapPost("/api/youtube/play", (string videoId) => youtube.Queue(videoId) ? Results.Ok() : Results.BadRequest(new { error = "That video is not in the current recommendation grid." }));
+
+app.MapPost("/api/youtube/volume", async (int level) =>
+{
+    if (level is < 0 or > 100) return Results.BadRequest(new { error = "YouTube volume must be from 0 to 100." });
+    var session = await Session();
+    if (preferVlc || session is null)
+        return Results.Json(new { error = "Select a YouTube or YouTube Music session first." }, statusCode: StatusCodes.Status409Conflict);
+    var media = await session.TryGetMediaPropertiesAsync();
+    var result = YouTubeActions.SetVolume(session.SourceAppUserModelId, media.Title, level);
+    return result.Success
+        ? Results.Json(new { volume = result.Volume, message = result.Message })
+        : Results.Json(new { error = result.Message }, statusCode: StatusCodes.Status409Conflict);
+});
 
 app.MapPost("/api/browser/youtube/state", async (HttpRequest request) =>
 {
@@ -578,9 +614,9 @@ sealed class YouTubeBridge
 
 sealed record MediaChapter(long PositionMs, string Title);
 
-sealed record NvidiaReplaySnapshot(bool Available, bool Enabled, int BufferSeconds, int[] SaveKeys, int[] ToggleKeys)
+sealed record NvidiaReplaySnapshot(bool Available, bool Enabled, int BufferSeconds, int[] SaveKeys, int[] ToggleKeys, int[] ScreenshotKeys)
 {
-    public static NvidiaReplaySnapshot Unavailable { get; } = new(false, false, 120, [], []);
+    public static NvidiaReplaySnapshot Unavailable { get; } = new(false, false, 120, [], [], []);
 }
 
 static class NvidiaReplayState
@@ -602,13 +638,14 @@ static class NvidiaReplayState
                 var shortcuts = settings.GetProperty("shortcuts");
                 var saveKeys = ReadShortcut(shortcuts, "DVRSave");
                 var toggleKeys = ReadShortcut(shortcuts, "DVRToggle");
+                var screenshotKeys = ReadShortcut(shortcuts, "Screenshot");
                 if (saveKeys.Length == 0 || toggleKeys.Length == 0) return lastGood;
                 var video = settings.GetProperty("video");
                 var enabled = video.TryGetProperty("irEnabled", out var enabledNode) && enabledNode.ValueKind == JsonValueKind.True;
                 var seconds = video.TryGetProperty("irBufferLength", out var secondsNode) && secondsNode.TryGetInt32(out var value)
                     ? Math.Clamp(value, 15, 1200)
                     : 120;
-                lastGood = new(true, enabled, seconds, saveKeys, toggleKeys);
+                lastGood = new(true, enabled, seconds, saveKeys, toggleKeys, screenshotKeys);
                 return lastGood;
             }
             catch
@@ -791,6 +828,321 @@ static class BrowserYouTube
         }
         return false;
     }
+
+    private static string? ProcessName(string source)
+    {
+        if (source.Contains("Brave", StringComparison.OrdinalIgnoreCase)) return "brave";
+        if (source.Contains("Chrome", StringComparison.OrdinalIgnoreCase)) return "chrome";
+        if (source.Contains("Edge", StringComparison.OrdinalIgnoreCase)) return "msedge";
+        return null;
+    }
+}
+
+sealed record YouTubeActionResult(bool Success, string Action, string Message)
+{
+    public static YouTubeActionResult Failed(string message) => new(false, "", message);
+}
+
+sealed record YouTubeVolumeResult(bool Success, int Volume, string Message)
+{
+    public static YouTubeVolumeResult Failed(string message) => new(false, -1, message);
+}
+
+static class YouTubeActions
+{
+    private const uint WmKeyDown = 0x0100, WmKeyUp = 0x0101, WmMouseMove = 0x0200, WmLeftButtonDown = 0x0201, WmLeftButtonUp = 0x0202;
+    [StructLayout(LayoutKind.Sequential)] private struct NativePoint { public int X, Y; }
+    [DllImport("user32.dll")] private static extern bool ScreenToClient(IntPtr window, ref NativePoint point);
+    [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr window, uint message, UIntPtr wParam, IntPtr lParam);
+
+    public static YouTubeActionResult Invoke(string source, string mediaTitle, string action)
+    {
+        if (action is not ("like" or "dislike" or "subscribe"))
+            return YouTubeActionResult.Failed("That YouTube action is not allowed.");
+        if (!TrySelectedYouTube(source, mediaTitle, out var root, out var uri, out var selectionError))
+            return YouTubeActionResult.Failed(selectionError);
+        try
+        {
+            var music = uri.Host.Equals("music.youtube.com", StringComparison.OrdinalIgnoreCase);
+            if (action == "subscribe" && music)
+                return YouTubeActionResult.Failed("Subscribe is not exposed by YouTube Music; open the video on YouTube to subscribe.");
+
+            var buttons = root.FindAll(
+                TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button));
+            AutomationElement? target = null;
+            var alreadySubscribed = false;
+            foreach (AutomationElement button in buttons)
+            {
+                try
+                {
+                    if (!button.Current.IsEnabled || button.Current.IsOffscreen) continue;
+                    var name = button.Current.Name?.Trim() ?? "";
+                    if (action == "subscribe" && IsSubscribedLabel(name)) alreadySubscribed = true;
+                    if (Matches(name, action, music)) { target = button; break; }
+                }
+                catch (ElementNotAvailableException) { }
+            }
+            if (target is null)
+            {
+                if (action == "subscribe" && alreadySubscribed)
+                    return new(true, "already-subscribed", "Already subscribed to this YouTube channel");
+                return YouTubeActionResult.Failed($"The visible YouTube {DisplayName(action)} button was not found.");
+            }
+
+            try
+            {
+                if (target.TryGetCurrentPattern(TogglePattern.Pattern, out var toggleObject) && toggleObject is TogglePattern toggle)
+                {
+                    var removing = toggle.Current.ToggleState == ToggleState.On;
+                    toggle.Toggle();
+                    var message = action switch
+                    {
+                        "like" => removing ? "YouTube Like removed" : "Liked on YouTube",
+                        "dislike" => removing ? "YouTube Dislike removed" : "Disliked on YouTube",
+                        _ => "Subscribed on YouTube"
+                    };
+                    return new(true, removing ? $"{action}-removed" : action, message);
+                }
+                if (target.TryGetCurrentPattern(InvokePattern.Pattern, out var invokeObject) && invokeObject is InvokePattern invoke)
+                {
+                    invoke.Invoke();
+                    return new(true, action, action == "subscribe" ? "Subscribed on YouTube" : $"YouTube {DisplayName(action)} toggled");
+                }
+                return YouTubeActionResult.Failed($"YouTube's {DisplayName(action)} control is visible but Windows cannot activate it.");
+            }
+            catch (ElementNotAvailableException) { return YouTubeActionResult.Failed("The YouTube page changed while the action was being sent; try again."); }
+            catch (InvalidOperationException) { return YouTubeActionResult.Failed($"Windows could not activate YouTube's {DisplayName(action)} control."); }
+        }
+        catch (COMException)
+        {
+            return YouTubeActionResult.Failed("Windows accessibility could not inspect the selected YouTube window; show it once and try again.");
+        }
+        catch (InvalidOperationException)
+        {
+            return YouTubeActionResult.Failed("The selected YouTube window changed while the action was being sent; try again.");
+        }
+    }
+
+    public static int ReadVolume(string source, string mediaTitle)
+    {
+        if (!TrySelectedYouTube(source, mediaTitle, out var root, out _, out _)) return -1;
+        try
+        {
+            var slider = FindVolumeSlider(root);
+            if (slider is null || !slider.TryGetCurrentPattern(RangeValuePattern.Pattern, out var rangeObject) || rangeObject is not RangeValuePattern range)
+                return -1;
+            return NormalizeVolume(range.Current.Value, range.Current.Minimum, range.Current.Maximum);
+        }
+        catch (ElementNotAvailableException) { return -1; }
+        catch (InvalidOperationException) { return -1; }
+        catch (COMException) { return -1; }
+    }
+
+    public static YouTubeVolumeResult SetVolume(string source, string mediaTitle, int level)
+    {
+        if (level is < 0 or > 100) return YouTubeVolumeResult.Failed("YouTube volume must be from 0 to 100.");
+        if (!TrySelectedYouTube(source, mediaTitle, out var root, out _, out var selectionError))
+            return YouTubeVolumeResult.Failed(selectionError);
+        try
+        {
+            var slider = FindVolumeSlider(root);
+            if (slider is null)
+                return YouTubeVolumeResult.Failed("The selected YouTube player's Volume slider was not found.");
+            if (!slider.TryGetCurrentPattern(RangeValuePattern.Pattern, out var rangeObject) || rangeObject is not RangeValuePattern range || range.Current.IsReadOnly)
+                return YouTubeVolumeResult.Failed("YouTube's Volume slider is visible but Windows cannot change it.");
+            var minimum = range.Current.Minimum;
+            var maximum = range.Current.Maximum;
+            range.SetValue(minimum + (maximum - minimum) * level / 100d);
+            Thread.Sleep(75);
+            var current = ReadVolume(source, mediaTitle);
+            if (current < 0) return YouTubeVolumeResult.Failed("YouTube's Volume slider disappeared while it was being changed.");
+            if (Math.Abs(current - level) <= 2) return new(true, current, $"YouTube volume {current}%");
+            if (!PostSliderLevel(slider, current, level))
+                return YouTubeVolumeResult.Failed("Windows could not send the volume change to the background YouTube player.");
+            for (var attempt = 0; attempt < 8; attempt++)
+            {
+                Thread.Sleep(75);
+                var observed = ReadVolume(source, mediaTitle);
+                if (observed < 0) continue;
+                if (Math.Abs(observed - level) <= 2) return new(true, observed, $"YouTube volume {observed}%");
+            }
+            return YouTubeVolumeResult.Failed("The background YouTube player ignored the volume change.");
+        }
+        catch (ElementNotAvailableException) { return YouTubeVolumeResult.Failed("The YouTube page changed while volume was being set; try again."); }
+        catch (InvalidOperationException) { return YouTubeVolumeResult.Failed("Windows could not change YouTube's Volume slider."); }
+        catch (COMException) { return YouTubeVolumeResult.Failed("Windows accessibility could not change YouTube volume; show the player once and try again."); }
+    }
+
+    private static AutomationElement? FindVolumeSlider(AutomationElement root)
+    {
+        var condition = new AndCondition(
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Slider),
+            new PropertyCondition(AutomationElement.NameProperty, "Volume"));
+        var sliders = root.FindAll(TreeScope.Descendants, condition);
+        foreach (AutomationElement slider in sliders)
+        {
+            try { if (slider.Current.IsEnabled) return slider; }
+            catch (ElementNotAvailableException) { }
+        }
+        return null;
+    }
+
+    private static int NormalizeVolume(double value, double minimum, double maximum)
+    {
+        if (maximum <= minimum) return -1;
+        return Math.Clamp((int)Math.Round((value - minimum) * 100d / (maximum - minimum)), 0, 100);
+    }
+
+    private static bool PostSliderLevel(AutomationElement slider, int currentLevel, int targetLevel)
+    {
+        var window = IntPtr.Zero;
+        var current = slider;
+        var walker = TreeWalker.RawViewWalker;
+        for (var depth = 0; depth < 20 && current is not null; depth++)
+        {
+            try
+            {
+                if (current.Current.ClassName.Equals("Chrome_RenderWidgetHostHWND", StringComparison.Ordinal) && current.Current.NativeWindowHandle != 0)
+                {
+                    window = (IntPtr)current.Current.NativeWindowHandle;
+                    break;
+                }
+                current = walker.GetParent(current);
+            }
+            catch (ElementNotAvailableException) { return false; }
+        }
+        var bounds = slider.Current.BoundingRectangle;
+        if (window == IntPtr.Zero || bounds.Width < 16 || bounds.Height < 8) return false;
+        const int endpointInset = 4;
+        var point = new NativePoint
+        {
+            X = (int)Math.Round(bounds.Left + endpointInset + (bounds.Width - endpointInset * 2) * currentLevel / 100d),
+            Y = (int)Math.Round(bounds.Top + bounds.Height / 2d)
+        };
+        if (!ScreenToClient(window, ref point)) return false;
+        var packed = (IntPtr)(((point.Y & 0xffff) << 16) | (point.X & 0xffff));
+        if (!PostMessage(window, WmMouseMove, UIntPtr.Zero, packed) ||
+            !PostMessage(window, WmLeftButtonDown, (UIntPtr)1, packed) ||
+            !PostMessage(window, WmLeftButtonUp, UIntPtr.Zero, packed)) return false;
+        var key = targetLevel >= currentLevel ? 0x27u : 0x25u;
+        var keyUpFlags = (IntPtr)unchecked((int)0xC0000001u);
+        for (var step = 0; step < Math.Abs(targetLevel - currentLevel); step++)
+        {
+            if (!PostMessage(window, WmKeyDown, (UIntPtr)key, (IntPtr)1) ||
+                !PostMessage(window, WmKeyUp, (UIntPtr)key, keyUpFlags)) return false;
+        }
+        return true;
+    }
+
+    private static bool TrySelectedYouTube(string source, string mediaTitle, out AutomationElement root, out Uri uri, out string error)
+    {
+        root = null!;
+        uri = null!;
+        error = "";
+        var processName = ProcessName(source);
+        if (processName is null)
+        {
+            error = "The selected player is not a supported YouTube browser session.";
+            return false;
+        }
+        var processes = Process.GetProcessesByName(processName);
+        try
+        {
+            var windows = processes
+                .Select(process =>
+                {
+                    try { process.Refresh(); return (Window: process.MainWindowHandle, Title: process.MainWindowTitle); }
+                    catch { return (Window: IntPtr.Zero, Title: ""); }
+                })
+                .Where(item => item.Window != IntPtr.Zero)
+                .ToArray();
+            var matches = windows
+                .Where(item => !string.IsNullOrWhiteSpace(mediaTitle) && item.Title.Contains(mediaTitle, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            var selected = matches.Length == 1 ? matches[0] : windows.Length == 1 ? windows[0] : default;
+            if (selected.Window == IntPtr.Zero)
+            {
+                error = "More than one browser window is open; show the intended YouTube tab once and try again.";
+                return false;
+            }
+            var selectedRoot = AutomationElement.FromHandle(selected.Window);
+            if (selectedRoot is null)
+            {
+                error = "Windows could not inspect the selected browser window.";
+                return false;
+            }
+            if (!TryReadAddress(selectedRoot, out var address) || !Uri.TryCreate(address, UriKind.Absolute, out var selectedUri) || !IsYouTube(selectedUri))
+            {
+                error = "The selected browser window is not on YouTube.";
+                return false;
+            }
+            root = selectedRoot;
+            uri = selectedUri;
+            return true;
+        }
+        catch (COMException)
+        {
+            error = "Windows accessibility could not inspect the selected YouTube window; show it once and try again.";
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            error = "The selected YouTube window changed while it was being inspected; try again.";
+            return false;
+        }
+        finally
+        {
+            foreach (var process in processes) process.Dispose();
+        }
+    }
+
+    private static bool TryReadAddress(AutomationElement root, out string address)
+    {
+        address = "";
+        var addressBar = root.FindFirst(
+            TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "view_1012"));
+        if (addressBar is null) return false;
+        try
+        {
+            if (addressBar.GetCurrentPattern(ValuePattern.Pattern) is not ValuePattern value) return false;
+            address = value.Current.Value;
+            if (!address.Contains("://", StringComparison.Ordinal)) address = "https://" + address;
+            return true;
+        }
+        catch (ElementNotAvailableException) { return false; }
+        catch (InvalidOperationException) { return false; }
+    }
+
+    private static bool IsYouTube(Uri uri) =>
+        uri.Host.Equals("youtube.com", StringComparison.OrdinalIgnoreCase) ||
+        uri.Host.EndsWith(".youtube.com", StringComparison.OrdinalIgnoreCase);
+
+    private static bool Matches(string label, string action, bool music) => action switch
+    {
+        "like" => music
+            ? label.Equals("Like", StringComparison.OrdinalIgnoreCase)
+            : label.StartsWith("like this video", StringComparison.OrdinalIgnoreCase),
+        "dislike" => music
+            ? label.Equals("Dislike", StringComparison.OrdinalIgnoreCase)
+            : label.StartsWith("dislike this video", StringComparison.OrdinalIgnoreCase),
+        "subscribe" => label.Equals("Subscribe", StringComparison.OrdinalIgnoreCase) ||
+            label.StartsWith("Subscribe to ", StringComparison.OrdinalIgnoreCase),
+        _ => false
+    };
+
+    private static bool IsSubscribedLabel(string label) =>
+        label.Equals("Subscribed", StringComparison.OrdinalIgnoreCase) ||
+        label.Equals("Unsubscribe", StringComparison.OrdinalIgnoreCase) ||
+        label.StartsWith("Unsubscribe from ", StringComparison.OrdinalIgnoreCase);
+
+    private static string DisplayName(string action) => action switch
+    {
+        "like" => "Like",
+        "dislike" => "Dislike",
+        _ => "Subscribe"
+    };
 
     private static string? ProcessName(string source)
     {

@@ -9,8 +9,8 @@ android {
         applicationId = "com.mediadeck.remote"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "1.4.0"
+        versionCode = 16
+        versionName = "1.4.8"
     }
 
     buildFeatures { buildConfig = true }
