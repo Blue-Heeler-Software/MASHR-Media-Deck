@@ -15,7 +15,7 @@
 
 MASHR Media Deck is a second-screen Android remote built for PC gamers who do not want to Alt+Tab out of a game just to manage music or video. The Pixel shows the selected Windows media session, artwork, live timeline, chapter markers, and large controls while the game keeps focus.
 
-![MASHR Media Deck showing extension-free YouTube scenes on a Pixel 7](docs/images/pixel7-youtube-scenes-v148.png)
+![MASHR Media Deck 1.4.11 showing split annotation seeking and the golden-brown Move Screen control on a Pixel 7](docs/images/pixel7-annotation-seek-v1411.png)
 
 ## No extension needed
 
@@ -25,7 +25,8 @@ The browser helper is not required for any control shown above. It exists for on
 
 ## What it does
 
-- Large play/pause, previous/next, volume, mute, shuffle, repeat, stop, and ±10-second controls.
+- Large play/pause, previous/next, volume, mute, shuffle, repeat, stop, and configurable Back/Ahead controls.
+- Split Back/Ahead controls: tap the blue **SCENE** edge to jump between annotations, or use the dark body for the default skip set in **PC SETTINGS**.
 - Live artwork, title, artist, elapsed time, remaining time, and continuously updating progress.
 - Tappable YouTube creator chapters as progress markers and a **SCENES** list—no extension required.
 - Extension-free YouTube **LIKE**, **DISLIKE**, and **SUB** controls through the selected browser window's Windows accessibility surface.
@@ -41,7 +42,7 @@ See the [screenshot gallery](docs/SCREENSHOTS.md) and [press kit](docs/PRESS-KIT
 
 ## See it in action
 
-Every screen below is a cache-busted, real Pixel 7 capture from MASHR Media Deck 1.4.8. No drawn app mock-ups are used.
+Every screen here is a real Pixel 7 capture, not a drawn app mock-up. The lead scene-navigation capture is from 1.4.11; supporting interaction captures are retained from 1.4.8.
 
 [Watch the rebuilt 30-second VLC demo clip](docs/media/mashr-media-deck-demo-v148.mp4), whose artwork is composed from the same real Pixel capture.
 
@@ -55,9 +56,9 @@ Every screen below is a cache-busted, real Pixel 7 capture from MASHR Media Deck
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/pixel7-youtube-scenes-v148.png" alt="YouTube artwork, progress, and creator chapter markers on MASHR Media Deck"><br>
-      <strong>YouTube, already understood.</strong><br>
-      Artwork, title, creator, live time, and creator chapters appear without a browser add-on.
+      <img src="docs/images/pixel7-annotation-seek-v1411.png" alt="Split blue scene jumps and dark configurable Back and Ahead controls on MASHR Media Deck 1.4.11"><br>
+      <strong>Annotations are one blue tap away.</strong><br>
+      Blue Scene edges jump to adjacent creator annotations; the dark Back/Ahead bodies use the default skip from PC Settings.
     </td>
     <td width="50%" valign="top">
       <img src="docs/images/pixel7-scene-list-v148.png" alt="Tappable YouTube scene list on MASHR Media Deck"><br>
@@ -105,7 +106,7 @@ MASHR Media Deck is not a general remote-desktop app. It exposes a small allowli
 | Moment | Phone action |
 | --- | --- |
 | A track is too loud | Tap **VOL −** or **MUTE** |
-| A video drifts into filler | Tap **+10 SEC** or a chapter marker |
+| A video drifts into filler | Tap the blue **SCENE** edge or the dark **AHEAD** control |
 | A video earns a reaction | Tap **LIKE**, **DISLIKE**, or **SUB** |
 | YouTube itself is too loud | Drag the tiny **YT VOL** slider |
 | The media window is on the wrong display | Tap **MOVE SCREEN** |
@@ -174,7 +175,7 @@ The stable executable, Android package, scheduled-task name, discovery token, HM
 
 **No extension is used for this.**
 
-For Brave, Chrome, and Edge, the companion reads the address bar of the unambiguous selected media window through Windows UI Automation. When it is an exact YouTube watch URL, creator-published description timestamps become progress markers. Tap **SCENES** between elapsed and remaining time to jump to a chapter. The same extension-free accessibility surface activates only the visible, named Like, Dislike, Subscribe, or Volume control; Subscribe never doubles as an unsubscribe action. **YT VOL** changes the webpage player's own value while leaving Windows master volume and the physical cursor alone.
+For Brave, Chrome, and Edge, the companion reads the address bar of the unambiguous selected media window through Windows UI Automation. When it is an exact YouTube watch URL, creator-published description timestamps become progress markers. Tap **SCENES** between elapsed and remaining time to open the full chapter list, or use the blue edge of **BACK/AHEAD** to jump directly to the adjacent annotation. When there is no annotation in that direction, the blue edge disappears and the dark control uses the default skip duration from **PC SETTINGS**. The deck deliberately leaves that duration off the button label so the scene mechanic stays visually obvious. The same extension-free accessibility surface activates only the visible, named Like, Dislike, Subscribe, or Volume control; Subscribe never doubles as an unsubscribe action. **YT VOL** changes the webpage player's own value while leaving Windows master volume and the physical cursor alone.
 
 ## Optional extra: related-video grid
 
@@ -234,7 +235,7 @@ Both scaffolds emit the shared `/api/now` snapshot shape and expose a small allo
 
 ## Project status
 
-MASHR Media Deck `1.4.10` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. Linux and macOS are contributor scaffolds, not released companions. The project has no analytics, cloud backend, advertising, or account system.
+MASHR Media Deck `1.4.11` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. Linux and macOS are contributor scaffolds, not released companions. The project has no analytics, cloud backend, advertising, or account system.
 
 Release history is in [CHANGELOG.md](CHANGELOG.md).
 

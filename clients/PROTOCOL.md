@@ -80,10 +80,11 @@ Providers should use `0` when a timeline is unavailable, `-1` when YouTube playe
 | `GET /api/sessions` | Available sessions and selected session |
 | `POST /api/sessions/select?source=...` | Select an exact provider-owned source identifier |
 | `POST /api/seek?positionMs=...` | Seek within provider-advertised bounds |
+| `POST /api/skip?seconds=-120..120` | Skip by a bounded, non-zero signed duration |
 | `POST /api/control/{command}` | Invoke one fixed allowlisted action |
 | `POST /api/youtube/volume?level=0..100` | Set the selected YouTube player's own volume |
 
-Baseline control names are `play`, `pause`, `stop`, `next`, `previous`, `back10`, `forward10`, `shuffle`, `repeat`, `mute`, `volumedown`, and `volumeup`. Windows-only controls currently include `movescreen`, `screenshot`, `alttab`, `altdown`, `altup`, `arrowleft`, `arrowright`, `instantreplay`, and `replayarm`. YouTube-specific controls are `like`, `dislike`, and `subscribe`.
+Baseline control names are `play`, `pause`, `stop`, `next`, `previous`, `back10`, `forward10`, `shuffle`, `repeat`, `mute`, `volumedown`, and `volumeup`. `back10` and `forward10` remain fixed compatibility commands; new clients should use bounded `POST /api/skip` for a user-selected skip duration. Windows-only controls currently include `movescreen`, `screenshot`, `alttab`, `altdown`, `altup`, `arrowleft`, `arrowright`, `instantreplay`, and `replayarm`. YouTube-specific controls are `like`, `dislike`, and `subscribe`.
 
 A port must return an explicit non-success result for an unsupported action. It must never reinterpret an unknown command as a shell command, key sequence, AppleScript fragment, D-Bus member, process name, or window identifier.
 
@@ -97,4 +98,3 @@ A port must return an explicit non-success result for an unsupported action. It 
 - Request/header/body limits and per-source rate limiting; pairing needs a stricter limiter.
 - Exact endpoint and command allowlists.
 - No router port forwards, wildcard public bind, arbitrary input injection, or browser cookies.
-

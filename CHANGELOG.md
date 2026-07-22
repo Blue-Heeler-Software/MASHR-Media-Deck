@@ -17,6 +17,9 @@ All notable MASHR Media Deck changes are recorded here.
 
 ### Changed
 
+- Split Back/Ahead into a dark configurable skip action and a blue adjacent-annotation action that appears only when a scene target exists; removed the duration from the control label and icon.
+- Added a 1–120 second default skip setting to the phone's PC Settings screen and a bounded, authenticated companion endpoint for exact signed skips.
+- Changed **MOVE SCREEN** from cyan to golden brown so it is visually distinct from blue scene-navigation actions.
 - Replaced the text-heavy control deck with a consistent scalable icon system while retaining short labels for instant recognition and accessibility.
 - Instant Replay now restores and verifies the remembered game window before sending NVIDIA's save shortcut. If the game cannot be focused, the companion returns a real error instead of falsely reporting a saved clip.
 - Renamed the blue **MOVE MEDIA** control to the shorter, clearer **MOVE SCREEN** label.

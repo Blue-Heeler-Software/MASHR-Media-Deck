@@ -252,6 +252,21 @@ app.MapPost("/api/seek", async (long positionMs) =>
     return await session.TryChangePlaybackPositionAsync(target) ? Results.Ok() : Results.BadRequest();
 });
 
+app.MapPost("/api/skip", async (int seconds) =>
+{
+    if (seconds == 0 || seconds is < -120 or > 120)
+        return Results.BadRequest(new { error = "Skip must be from 1 to 120 seconds in either direction." });
+    if (preferVlc)
+        return VlcProvider.Skip(seconds) ? Results.Ok() : Results.BadRequest();
+    var session = await Session();
+    if (session is null) return Results.NotFound();
+    var playback = session.GetPlaybackInfo();
+    var timeline = session.GetTimelineProperties();
+    var target = TimelineClock.PositionTicks(playback, timeline) + TimeSpan.FromSeconds(seconds).Ticks;
+    target = Math.Clamp(target, timeline.MinSeekTime.Ticks, timeline.MaxSeekTime.Ticks);
+    return await session.TryChangePlaybackPositionAsync(target) ? Results.Ok() : Results.BadRequest();
+});
+
 app.MapPost("/api/control/{command}", async (string command) =>
 {
     if (command == "alttab") { MediaKeys.AltTab(); return Results.Ok(); }
@@ -1542,6 +1557,7 @@ static class VlcProvider
     private static Process? ProcessInstance() => Process.GetProcessesByName("vlc").FirstOrDefault(process => process.MainWindowHandle != IntPtr.Zero);
     public static bool Exists() => ProcessInstance() is not null;
     public static bool TryInfo(out VlcInfo info) { var process = ProcessInstance(); if (process is null) { info = new("VLC media player", false); return false; } var title = process.MainWindowTitle; const string suffix = " - VLC media player"; if (title.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) title = title[..^suffix.Length]; info = new(string.IsNullOrWhiteSpace(title) ? "VLC media" : title, playing); return true; }
-    public static bool Control(string command) { var process = ProcessInstance(); if (process is null) return false; var window = process.MainWindowHandle; var appCommand = command switch { "play" or "pause" => 14, "stop" => 13, "next" => 11, "previous" => 12, _ => 0 }; if (appCommand != 0) { SendMessage(window, WM_APPCOMMAND, window, (IntPtr)(appCommand << 16)); if (command is "play" or "pause") playing = !playing; if (command == "stop") playing = false; return true; } if (command is "back10" or "forward10") { var key = command == "back10" ? VK_LEFT : VK_RIGHT; PostMessage(window, WM_KEYDOWN, (IntPtr)key, IntPtr.Zero); PostMessage(window, WM_KEYUP, (IntPtr)key, IntPtr.Zero); return true; } return false; }
+    public static bool Skip(int seconds) { var process = ProcessInstance(); if (process is null || seconds == 0) return false; var window = process.MainWindowHandle; var key = seconds < 0 ? VK_LEFT : VK_RIGHT; var presses = Math.Clamp((int)Math.Round(Math.Abs(seconds) / 10d, MidpointRounding.AwayFromZero), 1, 12); for (var index = 0; index < presses; index++) { PostMessage(window, WM_KEYDOWN, (IntPtr)key, IntPtr.Zero); PostMessage(window, WM_KEYUP, (IntPtr)key, IntPtr.Zero); } return true; }
+    public static bool Control(string command) { var process = ProcessInstance(); if (process is null) return false; var window = process.MainWindowHandle; var appCommand = command switch { "play" or "pause" => 14, "stop" => 13, "next" => 11, "previous" => 12, _ => 0 }; if (appCommand != 0) { SendMessage(window, WM_APPCOMMAND, window, (IntPtr)(appCommand << 16)); if (command is "play" or "pause") playing = !playing; if (command == "stop") playing = false; return true; } if (command is "back10" or "forward10") return Skip(command == "back10" ? -10 : 10); return false; }
     public static byte[]? Capture() { var process = ProcessInstance(); if (process is null || !GetWindowRect(process.MainWindowHandle, out var rect)) return null; var width = Math.Clamp(rect.Right - rect.Left, 320, 1920); var height = Math.Clamp(rect.Bottom - rect.Top, 180, 1080); try { using var bitmap = new Bitmap(width, height, PixelFormat.Format24bppRgb); using (var graphics = Graphics.FromImage(bitmap)) { var dc = graphics.GetHdc(); try { if (!PrintWindow(process.MainWindowHandle, dc, 2)) return null; } finally { graphics.ReleaseHdc(dc); } } using var stream = new MemoryStream(); bitmap.Save(stream, ImageFormat.Jpeg); return stream.ToArray(); } catch { return null; } }
 }

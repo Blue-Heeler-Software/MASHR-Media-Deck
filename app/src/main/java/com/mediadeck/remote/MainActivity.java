@@ -62,23 +62,23 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 public final class MainActivity extends Activity {
-    private static final int BG=Color.rgb(9,10,16), CARD=Color.rgb(24,25,36), INK=Color.rgb(246,244,255), MUTED=Color.rgb(161,161,179), PURPLE=Color.rgb(167,139,250);
+    private static final int BG=Color.rgb(9,10,16), CARD=Color.rgb(24,25,36), INK=Color.rgb(246,244,255), MUTED=Color.rgb(161,161,179), PURPLE=Color.rgb(167,139,250), SCENE_BLUE=Color.rgb(125,211,252), GOLDEN_BROWN=Color.rgb(184,134,11);
     private final Handler ui=new Handler(Looper.getMainLooper());
     private final ExecutorService io=Executors.newSingleThreadExecutor();
     private final ExecutorService thumbnails=Executors.newFixedThreadPool(3);
     private final Runnable poll=()->refresh(false);
     private ImageView artwork;
     private TextView source,title,artist,status,elapsed,remaining,scenes,youtubeVolumeValue;
-    private Button previous,play,next,shuffle,repeat,altTab;
+    private Button previous,play,next,shuffle,repeat,altTab,backSkip,aheadSkip,previousScene,nextScene;
     private ChapterSeekBar timeline;
     private SeekBar youtubeVolume;
     private SwipeReplayView replay;
     private String base="",deviceKey="",lastTrack="";
     private boolean running,requestPending,userSeeking,youtubeVolumeSeeking,altHeld,youtubeAvailable,artworkPending,artworkLoaded,replayAvailable,replayEnabled;
     private long durationMs,positionMs,lastArtworkAttemptMs;
-    private int replaySeconds=120;
+    private int replaySeconds=120,skipSeconds=10;
     private final ArrayList<MediaChapter> chapters=new ArrayList<>();
-    private enum DeckIcon { SETTINGS,LIST,PREVIOUS,PLAY,PAUSE,NEXT,ARROW_LEFT,ARROW_RIGHT,BACK10,FORWARD10,MUTE,VOLUME_DOWN,VOLUME_UP,SHUFFLE,REPEAT,STOP,CAMERA,MONITOR,THUMB_UP,THUMB_DOWN,SUBSCRIBE,ALT_TAB }
+    private enum DeckIcon { SETTINGS,LIST,PREVIOUS,PLAY,PAUSE,NEXT,ARROW_LEFT,ARROW_RIGHT,SEEK_BACK,SEEK_FORWARD,MUTE,VOLUME_DOWN,VOLUME_UP,SHUFFLE,REPEAT,STOP,CAMERA,MONITOR,THUMB_UP,THUMB_DOWN,SUBSCRIBE,ALT_TAB }
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
@@ -86,6 +86,7 @@ public final class MainActivity extends Activity {
         getWindow().setNavigationBarColor(BG);
         base=getPreferences(0).getString("pc","");
         deviceKey=getPreferences(0).getString("deviceKey","");
+        skipSeconds=Math.max(1,Math.min(120,getPreferences(0).getInt("skipSeconds",10)));
         build();
     }
 
@@ -208,8 +209,8 @@ public final class MainActivity extends Activity {
         LinearLayout seekRow=new LinearLayout(this);
         seekRow.setGravity(Gravity.CENTER);
         seekRow.setPadding(0,dp(5),0,0);
-        addWeighted(seekRow,iconAction("BACK","back10",11,DeckIcon.BACK10,INK,19,false));
-        addWeighted(seekRow,iconAction("AHEAD","forward10",11,DeckIcon.FORWARD10,INK,19,false));
+        addWeighted(seekRow,splitSeekControl(false));
+        addWeighted(seekRow,splitSeekControl(true));
         card.addView(seekRow,new LinearLayout.LayoutParams(-1,dp(44)));
 
         LinearLayout volumeRow=new LinearLayout(this);
@@ -245,7 +246,7 @@ public final class MainActivity extends Activity {
         utilityRow.addView(new View(this),new LinearLayout.LayoutParams(dp(4),1));
         Button moveScreen=iconAction("MOVE SCREEN","movescreen",10,DeckIcon.MONITOR,Color.BLACK,18,true);
         moveScreen.setTextColor(Color.BLACK);
-        moveScreen.setBackground(round(Color.rgb(125,211,252),20));
+        moveScreen.setBackground(round(GOLDEN_BROWN,20));
         moveScreen.setContentDescription("Move the selected PC media window to the next monitor");
         moveScreen.setOnClickListener(v->moveScreen());
         addWeighted(utilityRow,moveScreen,.7494f);
@@ -515,6 +516,37 @@ public final class MainActivity extends Activity {
         }
         scenes.setText(chapters.size()+" SCENES");
         scenes.setVisibility(chapters.size()>=2?View.VISIBLE:View.INVISIBLE);
+        updateAnnotationButtons();
+    }
+
+    private MediaChapter adjacentChapter(int direction){
+        if(chapters.size()<2)return null;
+        final long guardMs=750;
+        if(direction<0){
+            MediaChapter target=null;
+            for(MediaChapter chapter:chapters){if(chapter.positionMs<positionMs-guardMs)target=chapter;else break;}
+            return target;
+        }
+        for(MediaChapter chapter:chapters)if(chapter.positionMs>positionMs+guardMs)return chapter;
+        return null;
+    }
+
+    private void updateAnnotationButtons(){
+        MediaChapter back=adjacentChapter(-1),ahead=adjacentChapter(1);
+        boolean hasBack=back!=null,hasAhead=ahead!=null;
+        previousScene.setVisibility(hasBack?View.VISIBLE:View.GONE);
+        nextScene.setVisibility(hasAhead?View.VISIBLE:View.GONE);
+        backSkip.setBackground(hasBack?roundSides(Color.rgb(47,44,67),18,false,true):round(Color.rgb(47,44,67),18));
+        aheadSkip.setBackground(hasAhead?roundSides(Color.rgb(47,44,67),18,true,false):round(Color.rgb(47,44,67),18));
+        if(hasBack)previousScene.setContentDescription("Previous scene annotation: "+back.title);
+        if(hasAhead)nextScene.setContentDescription("Next scene annotation: "+ahead.title);
+    }
+
+    private void jumpAnnotation(int direction){
+        MediaChapter target=adjacentChapter(direction);
+        if(target==null){skipBy(direction);return;}
+        seekTo(target.positionMs);
+        Toast.makeText(this,(direction<0?"Previous scene: ":"Next scene: ")+target.title,Toast.LENGTH_SHORT).show();
     }
 
     private void showScenes(){
@@ -557,11 +589,35 @@ public final class MainActivity extends Activity {
     private void beginAltGesture(){if(altHeld)return;altHeld=true;altTab.setText("ALT HELD");altTab.setBackground(round(Color.rgb(248,113,113),20));previous.setText("WINDOW");next.setText("WINDOW");setIcon(previous,DeckIcon.ARROW_LEFT,INK,21,true);setIcon(next,DeckIcon.ARROW_RIGHT,INK,21,true);sendKeyCommand("altdown");}
     private void endAltGesture(){if(!altHeld)return;altHeld=false;sendKeyCommand("altup");altTab.setText("ALT+TAB");altTab.setBackground(round(Color.rgb(251,191,36),20));previous.setText("PREV");next.setText("NEXT");setIcon(previous,DeckIcon.PREVIOUS,INK,21,true);setIcon(next,DeckIcon.NEXT,INK,21,true);}
     private void seekTo(long positionMs){io.execute(()->{try{post("/api/seek?positionMs="+positionMs);}catch(Exception ignored){}ui.postDelayed(()->refresh(false),180);});}
+    private void skipBy(int direction){
+        final int seconds=Math.max(1,Math.min(120,skipSeconds))*(direction<0?-1:1);
+        final long fallbackPosition=Math.max(0,Math.min(durationMs,positionMs+seconds*1000L));
+        io.execute(()->{
+            try{post("/api/skip?seconds="+seconds);}
+            catch(Exception error){
+                String message=error.getMessage();
+                if(message==null||!message.contains("HTTP 404"))return;
+                try{if(durationMs>0)post("/api/seek?positionMs="+fallbackPosition);else post("/api/control/"+(seconds<0?"back10":"forward10"));}catch(Exception ignored){}
+            }
+            ui.postDelayed(()->refresh(false),180);
+        });
+    }
 
     private void openPcSettings(){
         LinearLayout form=new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(20),dp(4),dp(20),0);
+        TextView skipLabel=text("DEFAULT BACK / AHEAD SKIP",11,PURPLE,true);
+        skipLabel.setPadding(0,dp(6),0,0);
+        form.addView(skipLabel,new LinearLayout.LayoutParams(-1,dp(28)));
+        EditText skip=new EditText(this);
+        skip.setSingleLine();
+        skip.setHint("Seconds (1 to 120)");
+        skip.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        skip.setText(Integer.toString(skipSeconds));
+        skip.setSelectAllOnFocus(true);
+        skip.setTextSize(17);
+        form.addView(skip,new LinearLayout.LayoutParams(-1,dp(52)));
         EditText address=new EditText(this);
         address.setSingleLine();
         address.setHint("PC address (auto-detect if blank)");
@@ -576,11 +632,17 @@ public final class MainActivity extends Activity {
         code.setTextSize(17);
         form.addView(code,new LinearLayout.LayoutParams(-1,dp(56)));
         new AlertDialog.Builder(this)
-            .setTitle("Connect securely")
-            .setMessage("Right-click the MASHR Media Deck shield in the PC tray for its one-time code. This is local device pairing, not a YouTube login.")
+            .setTitle("PC SETTINGS")
+            .setMessage("Back and Ahead use this default when no blue Scene jump is available. The tray code is local device pairing, not a YouTube login.")
             .setView(form)
             .setNegativeButton("CANCEL",null)
             .setPositiveButton(deviceKey.isEmpty()?"PAIR":"CONNECT",(dialog,which)->{
+                int requestedSkip;
+                try{requestedSkip=Integer.parseInt(skip.getText().toString().trim());}
+                catch(Exception error){Toast.makeText(this,"Skip must be from 1 to 120 seconds",Toast.LENGTH_SHORT).show();return;}
+                if(requestedSkip<1||requestedSkip>120){Toast.makeText(this,"Skip must be from 1 to 120 seconds",Toast.LENGTH_SHORT).show();return;}
+                skipSeconds=requestedSkip;
+                getPreferences(0).edit().putInt("skipSeconds",skipSeconds).apply();
                 String value=cleanAddress(address.getText().toString());
                 String pairingCode=code.getText().toString().trim();
                 if(!value.isEmpty()){base=value;getPreferences(0).edit().putString("pc",base).apply();}
@@ -694,6 +756,23 @@ public final class MainActivity extends Activity {
     private Button action(String label,String command){Button button=button(label);button.setOnClickListener(v->control(command));return button;}
     private Button largeAction(String label,String command,int size){Button button=action(label,command);button.setTextSize(size);button.setSingleLine(true);button.setPadding(dp(4),0,dp(4),0);return button;}
     private Button iconAction(String label,String command,int size,DeckIcon icon,int color,int iconSize,boolean top){Button button=largeAction(label,command,size);setIcon(button,icon,color,iconSize,top);return button;}
+    private LinearLayout splitSeekControl(boolean forward){
+        LinearLayout group=new LinearLayout(this);
+        group.setGravity(Gravity.CENTER);
+        Button skip=iconAction(forward?"AHEAD":"BACK","",11,forward?DeckIcon.SEEK_FORWARD:DeckIcon.SEEK_BACK,INK,19,false);
+        skip.setPadding(dp(5),0,dp(5),0);
+        skip.setContentDescription((forward?"Skip forward":"Skip backward")+" by the default amount");
+        skip.setOnClickListener(v->skipBy(forward?1:-1));
+        Button scene=iconAction("SCENE","",8,forward?DeckIcon.NEXT:DeckIcon.PREVIOUS,Color.BLACK,13,false);
+        scene.setTextColor(Color.BLACK);
+        scene.setPadding(dp(2),0,dp(2),0);
+        scene.setBackground(roundSides(SCENE_BLUE,18,!forward,forward));
+        scene.setVisibility(View.GONE);
+        scene.setOnClickListener(v->jumpAnnotation(forward?1:-1));
+        if(forward){aheadSkip=skip;nextScene=scene;group.addView(skip,new LinearLayout.LayoutParams(0,-1,1));group.addView(scene,new LinearLayout.LayoutParams(dp(67),-1));}
+        else{backSkip=skip;previousScene=scene;group.addView(scene,new LinearLayout.LayoutParams(dp(67),-1));group.addView(skip,new LinearLayout.LayoutParams(0,-1,1));}
+        return group;
+    }
     private void setIcon(TextView view,DeckIcon icon,int color,int size,boolean top){Drawable drawable=new DeckIconDrawable(icon,color);drawable.setBounds(0,0,dp(size),dp(size));view.setCompoundDrawablePadding(dp(top?1:4));view.setGravity(Gravity.CENTER);view.setIncludeFontPadding(false);if(top)view.setCompoundDrawables(null,drawable,null,null);else view.setCompoundDrawables(drawable,null,null,null);}
     private void addWeighted(LinearLayout row,View view){addWeighted(row,view,1f);}
     private void addWeighted(LinearLayout row,View view,float weight){LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,-1,weight);params.setMargins(dp(2),0,dp(2),0);row.addView(view,params);}
@@ -702,13 +781,14 @@ public final class MainActivity extends Activity {
     private TextView text(String value,int size,int color,boolean bold){TextView view=new TextView(this);view.setText(value);view.setTextSize(size);view.setTextColor(color);view.setTypeface(Typeface.DEFAULT,bold?Typeface.BOLD:Typeface.NORMAL);view.setLineSpacing(0,1.1f);return view;}
     private Button button(String value){Button button=new Button(this);button.setText(value);button.setTextColor(INK);button.setTextSize(11);button.setTypeface(Typeface.DEFAULT_BOLD);button.setMinHeight(0);button.setMinWidth(0);button.setPadding(dp(16),0,dp(16),0);button.setBackground(round(Color.rgb(47,44,67),20));return button;}
     private GradientDrawable round(int color,int radius){GradientDrawable drawable=new GradientDrawable();drawable.setColor(color);drawable.setCornerRadius(dp(radius));return drawable;}
+    private GradientDrawable roundSides(int color,int radius,boolean left,boolean right){float l=left?dp(radius):0,r=right?dp(radius):0;GradientDrawable drawable=new GradientDrawable();drawable.setColor(color);drawable.setCornerRadii(new float[]{l,l,r,r,r,r,l,l});return drawable;}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
 
     private static final class DeckIconDrawable extends Drawable {
         private final DeckIcon icon;
-        private final Paint stroke=new Paint(Paint.ANTI_ALIAS_FLAG),fill=new Paint(Paint.ANTI_ALIAS_FLAG),digits=new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint stroke=new Paint(Paint.ANTI_ALIAS_FLAG),fill=new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Path path=new Path();
-        DeckIconDrawable(DeckIcon icon,int color){this.icon=icon;stroke.setColor(color);stroke.setStyle(Paint.Style.STROKE);stroke.setStrokeWidth(2.1f);stroke.setStrokeCap(Paint.Cap.ROUND);stroke.setStrokeJoin(Paint.Join.ROUND);fill.setColor(color);fill.setStyle(Paint.Style.FILL);digits.setColor(color);digits.setTypeface(Typeface.DEFAULT_BOLD);digits.setTextAlign(Paint.Align.CENTER);digits.setTextSize(7.5f);}
+        DeckIconDrawable(DeckIcon icon,int color){this.icon=icon;stroke.setColor(color);stroke.setStyle(Paint.Style.STROKE);stroke.setStrokeWidth(2.1f);stroke.setStrokeCap(Paint.Cap.ROUND);stroke.setStrokeJoin(Paint.Join.ROUND);fill.setColor(color);fill.setStyle(Paint.Style.FILL);}
         @Override public void draw(Canvas canvas){Rect b=getBounds();float scale=Math.min(b.width(),b.height())/24f;float ox=b.left+(b.width()-24*scale)/2f,oy=b.top+(b.height()-24*scale)/2f;canvas.save();canvas.translate(ox,oy);canvas.scale(scale,scale);path.reset();switch(icon){
             case SETTINGS: canvas.drawCircle(12,12,4,stroke);canvas.drawCircle(12,12,8,stroke);for(int i=0;i<8;i++){double a=i*Math.PI/4;canvas.drawLine(12+(float)Math.cos(a)*8,12+(float)Math.sin(a)*8,12+(float)Math.cos(a)*10,12+(float)Math.sin(a)*10,stroke);}break;
             case LIST: for(int y=6;y<=18;y+=6){canvas.drawCircle(4,y,1.4f,fill);canvas.drawLine(8,y,21,y,stroke);}break;
@@ -718,8 +798,8 @@ public final class MainActivity extends Activity {
             case PAUSE: canvas.drawRoundRect(new RectF(5,4,10,20),1,1,fill);canvas.drawRoundRect(new RectF(14,4,19,20),1,1,fill);break;
             case ARROW_LEFT: canvas.drawLine(20,12,5,12,stroke);canvas.drawLine(5,12,11,6,stroke);canvas.drawLine(5,12,11,18,stroke);break;
             case ARROW_RIGHT: canvas.drawLine(4,12,19,12,stroke);canvas.drawLine(19,12,13,6,stroke);canvas.drawLine(19,12,13,18,stroke);break;
-            case BACK10: seek(canvas,false);break;
-            case FORWARD10: seek(canvas,true);break;
+            case SEEK_BACK: seek(canvas,false);break;
+            case SEEK_FORWARD: seek(canvas,true);break;
             case MUTE: speaker(canvas);canvas.drawLine(16,8,22,16,stroke);canvas.drawLine(22,8,16,16,stroke);break;
             case VOLUME_DOWN: speaker(canvas);canvas.drawArc(new RectF(13,7,20,17),-48,96,false,stroke);break;
             case VOLUME_UP: speaker(canvas);canvas.drawArc(new RectF(12,7,20,17),-48,96,false,stroke);canvas.drawArc(new RectF(12,3,24,21),-48,96,false,stroke);break;
@@ -733,12 +813,12 @@ public final class MainActivity extends Activity {
             case SUBSCRIBE: canvas.drawCircle(8,7,3,stroke);canvas.drawArc(new RectF(3,11,13,21),180,180,false,stroke);canvas.drawLine(17,8,17,18,stroke);canvas.drawLine(12,13,22,13,stroke);break;
             case ALT_TAB: canvas.drawRoundRect(new RectF(2,4,16,15),2,2,stroke);canvas.drawRoundRect(new RectF(8,9,22,20),2,2,stroke);canvas.drawLine(5,18,11,18,stroke);canvas.drawLine(5,18,8,15,stroke);break;
         }canvas.restore();}
-        private void seek(Canvas canvas,boolean forward){canvas.drawArc(new RectF(3,3,21,21),forward?-100:-80,forward?260:-260,false,stroke);if(forward){triangle(path,18,3,23,4,20,8);canvas.drawPath(path,fill);}else{triangle(path,6,3,1,4,4,8);canvas.drawPath(path,fill);}Paint.FontMetrics fm=digits.getFontMetrics();canvas.drawText("10",12,12-(fm.ascent+fm.descent)/2,digits);}
+        private void seek(Canvas canvas,boolean forward){canvas.drawArc(new RectF(3,3,21,21),forward?-100:-80,forward?260:-260,false,stroke);if(forward){triangle(path,18,3,23,4,20,8);canvas.drawPath(path,fill);}else{triangle(path,6,3,1,4,4,8);canvas.drawPath(path,fill);}}
         private void speaker(Canvas canvas){path.moveTo(3,9);path.lineTo(8,9);path.lineTo(14,4);path.lineTo(14,20);path.lineTo(8,15);path.lineTo(3,15);path.close();canvas.drawPath(path,fill);}
         private void thumb(Canvas canvas,boolean down){canvas.save();if(down){canvas.rotate(180,12,12);}path.moveTo(4,10);path.lineTo(8,10);path.lineTo(11,4);path.quadTo(12,2,14,4);path.lineTo(14,8);path.lineTo(20,8);path.quadTo(22,8,21,11);path.lineTo(19,18);path.lineTo(8,18);path.lineTo(8,10);path.close();canvas.drawPath(path,stroke);canvas.drawLine(4,10,4,18,stroke);canvas.restore();}
         private static void triangle(Path value,float ax,float ay,float bx,float by,float cx,float cy){value.moveTo(ax,ay);value.lineTo(bx,by);value.lineTo(cx,cy);value.close();}
-        @Override public void setAlpha(int alpha){stroke.setAlpha(alpha);fill.setAlpha(alpha);digits.setAlpha(alpha);}
-        @Override public void setColorFilter(ColorFilter filter){stroke.setColorFilter(filter);fill.setColorFilter(filter);digits.setColorFilter(filter);}
+        @Override public void setAlpha(int alpha){stroke.setAlpha(alpha);fill.setAlpha(alpha);}
+        @Override public void setColorFilter(ColorFilter filter){stroke.setColorFilter(filter);fill.setColorFilter(filter);}
         @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
     }
 
