@@ -80,6 +80,7 @@ var app = builder.Build();
 var security = new SecurityState();
 var youtube = new YouTubeBridge();
 var youtubeChapters = new YouTubeChapterProvider();
+var gameWindow = new GameWindowTracker();
 string? preferredSource = null;
 bool preferVlc = false;
 
@@ -270,8 +271,10 @@ app.MapPost("/api/control/{command}", async (string command) =>
         var replay = NvidiaReplayState.Read();
         if (!replay.Available) return Results.Json(new { error = "NVIDIA Instant Replay is not available on this PC." }, statusCode: StatusCodes.Status409Conflict);
         if (!replay.Enabled) return Results.Json(new { error = "NVIDIA Instant Replay is off. Swipe once to arm it, then save clips after the buffer has filled." }, statusCode: StatusCodes.Status409Conflict);
+        var focus = await gameWindow.FocusForReplayAsync();
+        if (!focus.Success) return Results.Json(new { error = focus.Error }, statusCode: StatusCodes.Status409Conflict);
         MediaKeys.Hotkey(replay.SaveKeys);
-        return Results.Json(new { action = "saved", bufferSeconds = replay.BufferSeconds });
+        return Results.Json(new { action = "saved", bufferSeconds = replay.BufferSeconds, gameFocused = true, gameRefocused = focus.Refocused });
     }
     if (command == "replayarm")
     {
@@ -377,6 +380,7 @@ app.MapPost("/api/browser/youtube/state", async (HttpRequest request) =>
 app.MapGet("/api/browser/youtube/command", () => Results.Json(new { videoId = youtube.TakeCommand() }));
 
 app.MapGet("/", () => "MASHR Media Deck Companion");
+_ = gameWindow.Run(app.Lifetime.ApplicationStopping);
 if (lanAccess.IsEnabled) _ = LanDiscovery.Run(DiscoveryPort, HttpPort, lanAccess, app.Lifetime.ApplicationStopping);
 TrayApplication.Start(security, app.Lifetime, lanAccess);
 app.Run();
@@ -1358,6 +1362,145 @@ static class ForegroundApp
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
     public static string ProcessName() { try { GetWindowThreadProcessId(GetForegroundWindow(), out var id); return Process.GetProcessById((int)id).ProcessName; } catch { return ""; } }
+}
+
+sealed record GameFocusResult(bool Success, bool Refocused, string Error)
+{
+    public static GameFocusResult Focused(bool refocused) => new(true, refocused, "");
+    public static GameFocusResult Failed(string error) => new(false, false, error);
+}
+
+sealed class GameWindowTracker
+{
+    private const int SwRestore = 9;
+    private const uint GaRoot = 2;
+    private readonly object gate = new();
+    private Candidate? lastGame;
+    private static readonly HashSet<string> ExcludedProcesses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ApplicationFrameHost", "brave", "chrome", "Code", "Codex", "conhost", "devenv", "Discord",
+        "dwm", "EpicGamesLauncher", "explorer", "firefox", "MediaDeck.Companion", "msedge", "Music.UI",
+        "NVIDIA Overlay", "notepad", "obs64", "opera", "powershell", "pwsh", "SearchHost", "ShellExperienceHost",
+        "Spotify", "StartMenuExperienceHost", "steam", "steamwebhelper", "SystemSettings", "Taskmgr", "TextInputHost",
+        "vlc", "WindowsTerminal", "wmplayer"
+    };
+
+    [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint attach, uint attachTo, bool value);
+    [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr window);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out NativeRect rect);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr window, StringBuilder text, int maximum);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+    [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool ShowWindowAsync(IntPtr window, int command);
+    [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
+    private sealed record Candidate(IntPtr Window, int ProcessId, string ProcessName);
+
+    public async Task Run(CancellationToken stopping)
+    {
+        try
+        {
+            while (!stopping.IsCancellationRequested)
+            {
+                ObserveForeground();
+                await Task.Delay(500, stopping);
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    public async Task<GameFocusResult> FocusForReplayAsync()
+    {
+        var foreground = GetForegroundWindow();
+        var current = ReadCandidate(foreground, requireGameSized: false);
+        if (current is not null)
+        {
+            lock (gate) lastGame = current;
+            return GameFocusResult.Focused(false);
+        }
+
+        Candidate? target;
+        lock (gate) target = lastGame;
+        if (target is null || !StillOwnedBySameProcess(target))
+            return GameFocusResult.Failed("MASHR could not identify the game window. Focus the game once, then swipe again.");
+
+        TryActivate(target.Window);
+        await Task.Delay(180);
+        if (GetForegroundWindow() != target.Window)
+        {
+            TryActivate(target.Window);
+            await Task.Delay(180);
+        }
+        return GetForegroundWindow() == target.Window
+            ? GameFocusResult.Focused(true)
+            : GameFocusResult.Failed("Windows would not return focus to the game, so MASHR did not send the replay shortcut. Click the game once and retry.");
+    }
+
+    private void ObserveForeground()
+    {
+        var candidate = ReadCandidate(GetForegroundWindow(), requireGameSized: true);
+        if (candidate is not null) lock (gate) lastGame = candidate;
+    }
+
+    private static Candidate? ReadCandidate(IntPtr window, bool requireGameSized)
+    {
+        try
+        {
+            if (window == IntPtr.Zero || !IsWindow(window) || !IsWindowVisible(window) || GetAncestor(window, GaRoot) != window) return null;
+            GetWindowThreadProcessId(window, out var processId);
+            if (processId == 0) return null;
+            using var process = Process.GetProcessById((int)processId);
+            var processName = process.ProcessName;
+            if (ExcludedProcesses.Contains(processName)) return null;
+            var title = new StringBuilder(260);
+            if (GetWindowText(window, title, title.Capacity) == 0 || string.IsNullOrWhiteSpace(title.ToString())) return null;
+            if (requireGameSized && !CoversMostOfScreen(window)) return null;
+            return new Candidate(window, (int)processId, processName);
+        }
+        catch { return null; }
+    }
+
+    private static bool CoversMostOfScreen(IntPtr window)
+    {
+        if (!GetWindowRect(window, out var native)) return false;
+        var bounds = Rectangle.FromLTRB(native.Left, native.Top, native.Right, native.Bottom);
+        var screen = System.Windows.Forms.Screen.FromHandle(window).Bounds;
+        var visible = Rectangle.Intersect(bounds, screen);
+        if (visible.Width < 640 || visible.Height < 360 || screen.Width <= 0 || screen.Height <= 0) return false;
+        return (long)visible.Width * visible.Height >= (long)screen.Width * screen.Height * 65 / 100;
+    }
+
+    private static bool StillOwnedBySameProcess(Candidate candidate)
+    {
+        if (!IsWindow(candidate.Window)) return false;
+        GetWindowThreadProcessId(candidate.Window, out var processId);
+        return processId == candidate.ProcessId;
+    }
+
+    private static void TryActivate(IntPtr target)
+    {
+        var currentThread = GetCurrentThreadId();
+        var foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), out _);
+        var targetThread = GetWindowThreadProcessId(target, out _);
+        var attachedForeground = foregroundThread != 0 && foregroundThread != currentThread && AttachThreadInput(currentThread, foregroundThread, true);
+        var attachedTarget = targetThread != 0 && targetThread != currentThread && targetThread != foregroundThread && AttachThreadInput(currentThread, targetThread, true);
+        try
+        {
+            if (IsIconic(target)) ShowWindowAsync(target, SwRestore);
+            BringWindowToTop(target);
+            SetForegroundWindow(target);
+        }
+        finally
+        {
+            if (attachedTarget) AttachThreadInput(currentThread, targetThread, false);
+            if (attachedForeground) AttachThreadInput(currentThread, foregroundThread, false);
+        }
+    }
 }
 
 static class LanDiscovery

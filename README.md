@@ -204,6 +204,8 @@ MASHR Media Deck reads NVIDIA Overlay's local `ShareSettings.json` for:
 
 When replay is off, the slider is orange and says **SWIPE TO ARM GAME REPLAY**. Once NVIDIA reports the buffer enabled, it turns green and becomes **RECORD LAST 2:00 OF GAME**, with the duration taken from NVIDIA's configured rolling buffer. The remote does not expose a disarm action, so stale phone state cannot accidentally switch the buffer off.
 
+The companion remembers the last foreground game-sized window. Before saving a replay, it restores that window if a browser, media player, or controller app has taken focus, verifies that the game is foreground again, and only then sends NVIDIA's configured save shortcut. If Windows refuses the focus change or no game has been seen yet, MASHR reports a failure and sends no replay shortcut.
+
 ## Restart reliability
 
 Register the companion as an **At log on** task so it reconnects without a visible terminal:
@@ -232,7 +234,7 @@ Both scaffolds emit the shared `/api/now` snapshot shape and expose a small allo
 
 ## Project status
 
-MASHR Media Deck `1.4.8` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. Linux and macOS are contributor scaffolds, not released companions. The project has no analytics, cloud backend, advertising, or account system.
+MASHR Media Deck `1.4.9` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. Linux and macOS are contributor scaffolds, not released companions. The project has no analytics, cloud backend, advertising, or account system.
 
 Release history is in [CHANGELOG.md](CHANGELOG.md).
 

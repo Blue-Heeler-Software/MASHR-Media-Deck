@@ -17,6 +17,7 @@ All notable MASHR Media Deck changes are recorded here.
 
 ### Changed
 
+- Instant Replay now restores and verifies the remembered game window before sending NVIDIA's save shortcut. If the game cannot be focused, the companion returns a real error instead of falsely reporting a saved clip.
 - Renamed the blue **MOVE MEDIA** control to the shorter, clearer **MOVE SCREEN** label.
 - Renamed the armed replay control to **RECORD LAST 2:00 OF GAME** so its gameplay-capture purpose is obvious at a glance.
 - Reduced the outer deck gutter, card inset, and control-row spacing so the Pixel 7 layout uses more of the available screen width while retaining safe rounded edges.

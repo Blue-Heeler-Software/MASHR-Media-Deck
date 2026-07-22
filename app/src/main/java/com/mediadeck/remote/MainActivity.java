@@ -533,8 +533,10 @@ public final class MainActivity extends Activity {
             try{
                 JSONObject result=new JSONObject(post(save?"/api/control/instantreplay":"/api/control/replayarm"));
                 int seconds=Math.max(15,result.optInt("bufferSeconds",replaySeconds));
-                ui.post(()->Toast.makeText(this,save?"Saving the last "+formatTime(seconds*1000L)+" of gameplay":"Replay buffer is arming - save once the track turns green",Toast.LENGTH_LONG).show());
-            }catch(Exception error){ui.post(()->Toast.makeText(this,"Replay failed: "+safeMessage(error),Toast.LENGTH_LONG).show());}
+                boolean refocused=result.optBoolean("gameRefocused",false);
+                String message=save?(refocused?"Game refocused - saving the last ":"Saving the last ")+formatTime(seconds*1000L)+" of gameplay":"Replay buffer is arming - save once the track turns green";
+                ui.post(()->Toast.makeText(this,message,Toast.LENGTH_LONG).show());
+            }catch(Exception error){ui.post(()->Toast.makeText(this,"Replay failed: "+apiError(error),Toast.LENGTH_LONG).show());}
             ui.postDelayed(()->refresh(false),1600);
         });
     }
