@@ -22,6 +22,7 @@ using Windows.Storage.Streams;
 
 const int HttpPort = 43821;
 const int DiscoveryPort = 43822;
+var launchPairingMode = args.Any(argument => argument.Equals("--pairing-mode", StringComparison.OrdinalIgnoreCase));
 
 if (args.Length > 0 && args[0] == "--configure-lan")
 {
@@ -69,7 +70,7 @@ builder.Services.AddRateLimiter(options =>
             context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 5,
+                PermitLimit = 10,
                 Window = TimeSpan.FromMinutes(10),
                 QueueLimit = 0,
                 AutoReplenishment = true
@@ -78,6 +79,7 @@ builder.Services.AddRateLimiter(options =>
 
 var app = builder.Build();
 var security = new SecurityState();
+if (launchPairingMode) security.StartPairing();
 var youtube = new YouTubeBridge();
 var youtubeChapters = new YouTubeChapterProvider();
 var gameWindow = new GameWindowTracker();
@@ -158,15 +160,26 @@ async Task<GlobalSystemMediaTransportControlsSession?> Session()
     return manager.GetCurrentSession();
 }
 
-app.MapGet("/api/health", () => Results.Json(new { service = "MASHR Media Deck", paired = security.IsPaired, lanMode = lanAccess.Mode, bindAddress = lanAccess.IsEnabled ? lanAccess.LocalAddress?.ToString() : "loopback" }));
+app.MapGet("/api/health", () => Results.Json(new
+{
+    service = "MASHR Media Deck",
+    paired = security.IsPaired,
+    pairedDevices = security.DeviceCount,
+    pairingOpen = security.IsPairingOpen,
+    pairingSecondsRemaining = security.PairingSecondsRemaining,
+    lanMode = lanAccess.Mode,
+    bindAddress = lanAccess.IsEnabled ? lanAccess.LocalAddress?.ToString() : "loopback"
+}));
 app.MapPost("/api/pair", (HttpContext context) =>
 {
     var code = context.Request.Headers["X-MediaDeck-Pairing-Code"].ToString();
-    if (security.TryPair(code, out var key))
-        return Results.Json(new { key, algorithm = "HMAC-SHA256", clockWindowSeconds = 30 });
+    var deviceId = context.Request.Headers["X-MediaDeck-Device"].ToString();
+    var deviceName = context.Request.Headers["X-MediaDeck-Device-Name"].ToString();
+    if (security.TryPair(code, deviceId, deviceName, context.Connection.RemoteIpAddress, out var key, out var assignedDeviceId))
+        return Results.Json(new { key, deviceId = assignedDeviceId, algorithm = "HMAC-SHA256", clockWindowSeconds = 30 });
     return security.IsPairingOpen
         ? Results.Json(new { error = "Pairing code is incorrect." }, statusCode: StatusCodes.Status401Unauthorized)
-        : Results.Json(new { error = "Pairing is closed. Use the tray icon to reset phone pairing." }, statusCode: StatusCodes.Status409Conflict);
+        : Results.Json(new { error = "Pairing is closed. Open the PC dashboard and start pairing mode." }, statusCode: StatusCodes.Status409Conflict);
 }).RequireRateLimiting("pair");
 
 app.MapGet("/api/now", async (HttpContext context) =>
@@ -402,56 +415,136 @@ app.Run();
 
 sealed class SecurityState
 {
+    private const int PairingWindowSeconds = 120;
+    private const int MaximumDevices = 16;
+    private const string LegacyDeviceId = "legacy";
     private readonly object gate = new();
     private readonly ConcurrentDictionary<string, long> usedNonces = new();
     private readonly string directory;
-    private readonly string keyPath;
-    private readonly string pairedPath;
+    private readonly string legacyKeyPath;
+    private readonly string legacyPairedPath;
+    private readonly string devicesPath;
     private readonly string codePath;
-    private byte[] key;
+    private readonly Dictionary<string, PairedDevice> devices = new(StringComparer.Ordinal);
     private string pairingCode = "";
-    private bool pairingOpen;
+    private DateTimeOffset pairingExpiresAt = DateTimeOffset.MinValue;
+    private DateTimeOffset lastDeviceSave = DateTimeOffset.MinValue;
 
     public SecurityState()
     {
         directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MediaDeck");
-        keyPath = Path.Combine(directory, "device.key");
-        pairedPath = Path.Combine(directory, "paired.marker");
+        legacyKeyPath = Path.Combine(directory, "device.key");
+        legacyPairedPath = Path.Combine(directory, "paired.marker");
+        devicesPath = Path.Combine(directory, "paired-devices.json");
         codePath = Path.Combine(directory, "pairing-code.txt");
         Directory.CreateDirectory(directory);
-        key = LoadOrCreateKey();
-        pairingOpen = !File.Exists(pairedPath);
-        if (pairingOpen) OpenPairingCode(); else DeleteCodeFile();
+        var storeExists = File.Exists(devicesPath);
+        LoadDevices();
+        var migratedLegacy = devices.Count == 0 && File.Exists(legacyPairedPath) && MigrateLegacyPairing();
+        if (!storeExists || migratedLegacy) SaveDevicesLocked();
+        if (migratedLegacy) DeleteLegacyMarker();
+        DeleteCodeFile();
+        if (devices.Count == 0) StartPairingLocked(TimeSpan.FromSeconds(PairingWindowSeconds));
     }
 
-    public bool IsPaired { get { lock (gate) return !pairingOpen; } }
-    public bool IsPairingOpen { get { lock (gate) return pairingOpen; } }
-    public string PairingCode { get { lock (gate) return pairingOpen ? pairingCode : "already paired"; } }
+    public bool IsPaired { get { lock (gate) return devices.Count > 0; } }
+    public int DeviceCount { get { lock (gate) return devices.Count; } }
+    public bool IsPairingOpen { get { lock (gate) { ExpirePairingLocked(); return pairingExpiresAt > DateTimeOffset.UtcNow; } } }
+    public string PairingCode { get { lock (gate) { ExpirePairingLocked(); return pairingExpiresAt > DateTimeOffset.UtcNow ? pairingCode : ""; } } }
+    public int PairingSecondsRemaining
+    {
+        get
+        {
+            lock (gate)
+            {
+                ExpirePairingLocked();
+                return Math.Max(0, (int)Math.Ceiling((pairingExpiresAt - DateTimeOffset.UtcNow).TotalSeconds));
+            }
+        }
+    }
 
-    public bool TryPair(string candidate, out string encodedKey)
+    public IReadOnlyList<PairedDeviceView> Snapshot()
+    {
+        lock (gate)
+        {
+            var now = DateTimeOffset.UtcNow;
+            return devices.Values
+                .OrderByDescending(device => device.LastSeenUtc)
+                .Select(device => new PairedDeviceView(
+                    device.Id,
+                    device.Name,
+                    device.LastAddress,
+                    device.PairedAtUtc,
+                    device.LastSeenUtc,
+                    now - device.LastSeenUtc < TimeSpan.FromSeconds(12),
+                    device.Id == LegacyDeviceId))
+                .ToArray();
+        }
+    }
+
+    public void StartPairing() { lock (gate) StartPairingLocked(TimeSpan.FromSeconds(PairingWindowSeconds)); }
+
+    public void StopPairing()
+    {
+        lock (gate)
+        {
+            pairingCode = "";
+            pairingExpiresAt = DateTimeOffset.MinValue;
+            DeleteCodeFile();
+        }
+    }
+
+    public bool TryPair(string candidate, string requestedId, string requestedName, IPAddress? remoteAddress, out string encodedKey, out string assignedDeviceId)
     {
         lock (gate)
         {
             encodedKey = "";
-            if (!pairingOpen || candidate.Length != 6 || !CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(candidate), Encoding.ASCII.GetBytes(pairingCode))) return false;
+            assignedDeviceId = "";
+            ExpirePairingLocked();
+            if (pairingExpiresAt <= DateTimeOffset.UtcNow || candidate.Length != 6 ||
+                !CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(candidate), Encoding.ASCII.GetBytes(pairingCode))) return false;
+
+            var id = NormalizeDeviceId(requestedId);
+            if (id.Length == 0) id = Guid.NewGuid().ToString("N");
+            if (!devices.ContainsKey(id) && devices.Count >= MaximumDevices) return false;
+            var now = DateTimeOffset.UtcNow;
+            var key = RandomNumberGenerator.GetBytes(32);
+            var device = new PairedDevice(
+                id,
+                NormalizeDeviceName(requestedName),
+                key,
+                now,
+                now,
+                NormalizeAddress(remoteAddress));
+            devices[id] = device;
+            usedNonces.Clear();
+            SaveDevicesLocked();
             encodedKey = Convert.ToBase64String(key);
-            pairingOpen = false;
-            File.WriteAllText(pairedPath, DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
-            DeleteCodeFile();
+            assignedDeviceId = id;
             return true;
         }
     }
 
-    public void ResetPairing()
+    public bool Revoke(string deviceId)
     {
         lock (gate)
         {
-            key = RandomNumberGenerator.GetBytes(32);
-            File.WriteAllText(keyPath, Convert.ToBase64String(key));
-            if (File.Exists(pairedPath)) File.Delete(pairedPath);
-            pairingOpen = true;
+            if (!devices.Remove(deviceId)) return false;
             usedNonces.Clear();
-            OpenPairingCode();
+            SaveDevicesLocked();
+            return true;
+        }
+    }
+
+    public void RevokeAllAndPair()
+    {
+        lock (gate)
+        {
+            devices.Clear();
+            usedNonces.Clear();
+            SaveDevicesLocked();
+            DeleteLegacyMarker();
+            StartPairingLocked(TimeSpan.FromSeconds(PairingWindowSeconds));
         }
     }
 
@@ -461,18 +554,48 @@ sealed class SecurityState
         if (Math.Abs(DateTimeOffset.UtcNow.ToUnixTimeSeconds() - timestamp) > 30) return false;
         var nonce = request.Headers["X-MediaDeck-Nonce"].ToString();
         if (nonce.Length is < 16 or > 64 || nonce.Any(ch => !char.IsAsciiLetterOrDigit(ch))) return false;
-        var supplied = request.Headers["X-MediaDeck-Signature"].ToString();
         byte[] suppliedBytes;
-        try { suppliedBytes = Convert.FromBase64String(supplied); }
+        try { suppliedBytes = Convert.FromBase64String(request.Headers["X-MediaDeck-Signature"].ToString()); }
         catch (FormatException) { return false; }
+
+        var requestedId = NormalizeDeviceId(request.Headers["X-MediaDeck-Device"].ToString());
+        PairedDevice? candidate;
+        lock (gate)
+        {
+            if (requestedId.Length > 0 && devices.TryGetValue(requestedId, out candidate)) { }
+            else devices.TryGetValue(LegacyDeviceId, out candidate);
+            if (candidate is null) return false;
+            candidate = candidate with { Key = candidate.Key.ToArray() };
+        }
+
         var canonical = $"{request.Method.ToUpperInvariant()}\n{request.Path}{request.QueryString}\n{timestamp}\n{nonce}";
-        byte[] keyCopy;
-        lock (gate) keyCopy = key.ToArray();
-        var expected = HMACSHA256.HashData(keyCopy, Encoding.UTF8.GetBytes(canonical));
+        var expected = HMACSHA256.HashData(candidate.Key, Encoding.UTF8.GetBytes(canonical));
         if (!CryptographicOperations.FixedTimeEquals(expected, suppliedBytes)) return false;
-        var expiry = timestamp + 35;
-        if (!usedNonces.TryAdd(nonce, expiry)) return false;
-        if (usedNonces.Count > 512)
+        var nonceKey = $"{candidate.Id}:{nonce}";
+        if (!usedNonces.TryAdd(nonceKey, timestamp + 35)) return false;
+
+        lock (gate)
+        {
+            if (!devices.TryGetValue(candidate.Id, out var current)) return false;
+            var migratedLegacy = false;
+            if (candidate.Id == LegacyDeviceId && requestedId.Length > 0)
+            {
+                devices.Remove(LegacyDeviceId);
+                current = current with
+                {
+                    Id = requestedId,
+                    Name = NormalizeDeviceName(request.Headers["X-MediaDeck-Device-Name"].ToString())
+                };
+                devices[requestedId] = current;
+                migratedLegacy = true;
+            }
+            var now = DateTimeOffset.UtcNow;
+            current = current with { LastSeenUtc = now, LastAddress = NormalizeAddress(request.HttpContext.Connection.RemoteIpAddress) };
+            devices[current.Id] = current;
+            if (migratedLegacy || now - lastDeviceSave >= TimeSpan.FromMinutes(1)) SaveDevicesLocked();
+        }
+
+        if (usedNonces.Count > 1024)
         {
             var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             foreach (var old in usedNonces.Where(pair => pair.Value < now).Select(pair => pair.Key)) usedNonces.TryRemove(old, out _);
@@ -480,33 +603,134 @@ sealed class SecurityState
         return true;
     }
 
-    private byte[] LoadOrCreateKey()
+    private bool LoadDevices()
+    {
+        if (!File.Exists(devicesPath)) return false;
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(devicesPath));
+            if (document.RootElement.ValueKind != JsonValueKind.Array) return false;
+            foreach (var item in document.RootElement.EnumerateArray())
+            {
+                try
+                {
+                    var id = NormalizeDeviceId(JsonText(item, "Id"));
+                    var key = Convert.FromBase64String(JsonText(item, "Key"));
+                    if (id.Length == 0 || key.Length != 32 || devices.Count >= MaximumDevices) continue;
+                    var name = JsonText(item, "Name");
+                    var pairedAt = JsonDate(item, "PairedAtUtc", DateTimeOffset.UtcNow);
+                    var lastSeen = JsonDate(item, "LastSeenUtc", pairedAt);
+                    devices[id] = new PairedDevice(id, NormalizeDeviceName(name), key, pairedAt, lastSeen, JsonText(item, "LastAddress"));
+                }
+                catch { }
+            }
+            return true;
+        }
+        catch (Exception error)
+        {
+            try { File.WriteAllText(Path.Combine(directory, "pairing-load-error.txt"), $"{DateTimeOffset.UtcNow:O} {error.GetType().Name}: {error.Message}"); } catch { }
+            return false;
+        }
+    }
+
+    private bool MigrateLegacyPairing()
     {
         try
         {
-            if (File.Exists(keyPath))
-            {
-                var stored = Convert.FromBase64String(File.ReadAllText(keyPath).Trim());
-                if (stored.Length == 32) return stored;
-            }
+            if (!File.Exists(legacyPairedPath) || !File.Exists(legacyKeyPath)) return false;
+            var key = Convert.FromBase64String(File.ReadAllText(legacyKeyPath).Trim());
+            if (key.Length != 32) return false;
+            var pairedAt = File.GetLastWriteTimeUtc(legacyPairedPath);
+            devices[LegacyDeviceId] = new PairedDevice(LegacyDeviceId, "Previously paired phone", key, pairedAt, pairedAt, "");
+            return true;
         }
-        catch { }
-        var created = RandomNumberGenerator.GetBytes(32);
-        File.WriteAllText(keyPath, Convert.ToBase64String(created));
-        return created;
+        catch { return false; }
     }
 
-    private void OpenPairingCode()
+    private void StartPairingLocked(TimeSpan duration)
     {
         pairingCode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString(CultureInfo.InvariantCulture);
+        pairingExpiresAt = DateTimeOffset.UtcNow.Add(duration);
         File.WriteAllText(codePath, pairingCode);
+    }
+
+    private void ExpirePairingLocked()
+    {
+        if (pairingExpiresAt <= DateTimeOffset.UtcNow && pairingCode.Length > 0)
+        {
+            pairingCode = "";
+            pairingExpiresAt = DateTimeOffset.MinValue;
+            DeleteCodeFile();
+        }
+    }
+
+    private void SaveDevicesLocked()
+    {
+        try
+        {
+            var stored = devices.Values.Select(device => new StoredDevice(
+                device.Id,
+                device.Name,
+                Convert.ToBase64String(device.Key),
+                device.PairedAtUtc,
+                device.LastSeenUtc,
+                device.LastAddress)).ToArray();
+            var temporary = devicesPath + ".tmp";
+            File.WriteAllText(temporary, JsonSerializer.Serialize(stored, new JsonSerializerOptions { WriteIndented = true }));
+            File.Move(temporary, devicesPath, true);
+            lastDeviceSave = DateTimeOffset.UtcNow;
+        }
+        catch { }
+    }
+
+    private static string NormalizeDeviceId(string value)
+    {
+        value = value.Trim();
+        if (value == LegacyDeviceId) return value;
+        return value.Length is >= 8 and <= 64 && value.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_' or '.') ? value : "";
+    }
+
+    private static string NormalizeDeviceName(string value)
+    {
+        value = new string(value.Where(ch => !char.IsControl(ch)).ToArray()).Trim();
+        if (value.Length == 0) return "Android device";
+        return value.Length <= 48 ? value : value[..48];
+    }
+
+    private static string NormalizeAddress(IPAddress? address)
+    {
+        if (address?.IsIPv4MappedToIPv6 == true) address = address.MapToIPv4();
+        return address?.ToString() ?? "";
+    }
+
+    private static string JsonText(JsonElement item, string name)
+    {
+        foreach (var property in item.EnumerateObject())
+            if (property.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) return property.Value.ValueKind == JsonValueKind.String ? property.Value.GetString() ?? "" : "";
+        return "";
+    }
+
+    private static DateTimeOffset JsonDate(JsonElement item, string name, DateTimeOffset fallback)
+    {
+        var value = JsonText(item, name);
+        return DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed) ? parsed : fallback;
     }
 
     private void DeleteCodeFile()
     {
         try { if (File.Exists(codePath)) File.Delete(codePath); } catch { }
     }
+
+    private void DeleteLegacyMarker()
+    {
+        try { if (File.Exists(legacyPairedPath)) File.Delete(legacyPairedPath); } catch { }
+    }
+
+    private sealed record PairedDevice(string Id, string Name, byte[] Key, DateTimeOffset PairedAtUtc, DateTimeOffset LastSeenUtc, string LastAddress);
+    private sealed record StoredDevice(string Id, string Name, string Key, DateTimeOffset PairedAtUtc, DateTimeOffset LastSeenUtc, string? LastAddress);
 }
+
+sealed record PairedDeviceView(string Id, string Name, string Address, DateTimeOffset PairedAtUtc, DateTimeOffset LastSeenUtc, bool Online, bool Legacy);
 
 static class NetworkPolicy
 {
@@ -1192,6 +1416,8 @@ static class TrayApplication
         private readonly IHostApplicationLifetime lifetime;
         private readonly LanAccessPolicy lanAccess;
         private readonly System.Windows.Forms.NotifyIcon icon;
+        private readonly PairingDashboard dashboard;
+        private readonly System.Windows.Forms.Timer statusTimer;
 
         public TrayContext(SecurityState security, IHostApplicationLifetime lifetime, LanAccessPolicy lanAccess)
         {
@@ -1199,9 +1425,11 @@ static class TrayApplication
             this.lifetime = lifetime;
             this.lanAccess = lanAccess;
             var menu = new System.Windows.Forms.ContextMenuStrip();
-            menu.Items.Add("Show pairing status", null, (_, _) => ShowPairing());
+            var openItem = menu.Items.Add("Open Media Deck", null, (_, _) => ShowDashboard());
+            openItem.Font = new Font(openItem.Font, FontStyle.Bold);
+            menu.Items.Add("Start pairing mode (2 min)", null, (_, _) => StartPairing());
             menu.Items.Add("Copy pairing code", null, (_, _) => CopyPairingCode());
-            menu.Items.Add("Reset phone pairing", null, (_, _) => ResetPairing());
+            menu.Items.Add("Manage paired devices", null, (_, _) => ShowDashboard());
             menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
             menu.Items.Add("Exit MASHR Media Deck", null, (_, _) => Exit());
             icon = new System.Windows.Forms.NotifyIcon
@@ -1211,43 +1439,360 @@ static class TrayApplication
                 ContextMenuStrip = menu,
                 Visible = true
             };
-            icon.DoubleClick += (_, _) => ShowPairing();
-            ShowPairing();
+            icon.DoubleClick += (_, _) => ShowDashboard();
+            dashboard = new PairingDashboard(security, lanAccess, Exit);
+            statusTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            statusTimer.Tick += (_, _) => RefreshTrayStatus();
+            statusTimer.Start();
+            RefreshTrayStatus();
+            dashboard.Show();
         }
 
-        private void ShowPairing()
+        private void ShowDashboard()
         {
-            var message = !lanAccess.IsEnabled
-                ? "LAN access is off; MASHR Media Deck is listening on this PC only. Run Configure-LanAccess to enable a phone."
-                : security.IsPairingOpen
-                ? $"{lanAccess.Display}. Enter pairing code {security.PairingCode} on the phone."
-                : $"{lanAccess.Display}. Signed controls are enabled.";
-            icon.BalloonTipTitle = "MASHR Media Deck Companion";
-            icon.BalloonTipText = message;
+            dashboard.BringUp();
+        }
+
+        private void StartPairing()
+        {
+            security.StartPairing();
+            dashboard.BringUp();
+            icon.BalloonTipTitle = "Pairing mode is open";
+            icon.BalloonTipText = $"Enter {security.PairingCode} on each phone within two minutes.";
             icon.BalloonTipIcon = System.Windows.Forms.ToolTipIcon.Info;
-            icon.ShowBalloonTip(6000);
+            icon.ShowBalloonTip(5000);
         }
 
         private void CopyPairingCode()
         {
-            if (!security.IsPairingOpen) { ShowPairing(); return; }
+            if (!security.IsPairingOpen) { StartPairing(); return; }
             try { System.Windows.Forms.Clipboard.SetText(security.PairingCode); } catch { }
-            ShowPairing();
+            ShowDashboard();
         }
 
-        private void ResetPairing()
+        private void RefreshTrayStatus()
         {
-            security.ResetPairing();
-            ShowPairing();
+            var count = security.DeviceCount;
+            icon.Text = $"MASHR Media Deck • {count} device{(count == 1 ? "" : "s")}";
         }
 
         private void Exit()
         {
+            statusTimer.Stop();
+            dashboard.AllowClose();
+            dashboard.Close();
             icon.Visible = false;
             icon.Dispose();
             lifetime.StopApplication();
             ExitThread();
         }
+    }
+
+    private sealed class PairingDashboard : System.Windows.Forms.Form
+    {
+        private static readonly Color Background = Color.FromArgb(10, 10, 17);
+        private static readonly Color Card = Color.FromArgb(25, 25, 38);
+        private static readonly Color CardRaised = Color.FromArgb(47, 43, 67);
+        private static readonly Color Ink = Color.FromArgb(247, 245, 255);
+        private static readonly Color Muted = Color.FromArgb(180, 176, 199);
+        private static readonly Color Purple = Color.FromArgb(167, 139, 250);
+        private static readonly Color Gold = Color.FromArgb(202, 145, 0);
+        private static readonly Color Green = Color.FromArgb(74, 222, 128);
+        private readonly SecurityState security;
+        private readonly LanAccessPolicy lanAccess;
+        private readonly Action exit;
+        private readonly System.Windows.Forms.Label modeLabel;
+        private readonly System.Windows.Forms.Label codeLabel;
+        private readonly System.Windows.Forms.Label timerLabel;
+        private readonly System.Windows.Forms.Label networkLabel;
+        private readonly System.Windows.Forms.Label deviceHeading;
+        private readonly System.Windows.Forms.ListView deviceList;
+        private readonly System.Windows.Forms.Button startButton;
+        private readonly System.Windows.Forms.Button stopButton;
+        private readonly System.Windows.Forms.Button copyButton;
+        private readonly System.Windows.Forms.Button revokeButton;
+        private readonly System.Windows.Forms.Timer refreshTimer;
+        private bool canClose;
+
+        public PairingDashboard(SecurityState security, LanAccessPolicy lanAccess, Action exit)
+        {
+            this.security = security;
+            this.lanAccess = lanAccess;
+            this.exit = exit;
+            Text = "MASHR Media Deck";
+            Icon = SystemIcons.Shield;
+            BackColor = Background;
+            ForeColor = Ink;
+            Font = new Font("Segoe UI", 10f);
+            StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
+            MinimumSize = new Size(760, 610);
+            ClientSize = new Size(820, 650);
+            ShowInTaskbar = true;
+
+            var header = new System.Windows.Forms.Panel { Dock = System.Windows.Forms.DockStyle.Top, Height = 104, Padding = new System.Windows.Forms.Padding(24, 17, 24, 10) };
+            var brand = new System.Windows.Forms.Label
+            {
+                Text = "M A S H R",
+                Font = new Font("Segoe UI", 25f, FontStyle.Bold),
+                ForeColor = Ink,
+                AutoSize = true,
+                Location = new Point(22, 12)
+            };
+            var product = new System.Windows.Forms.Label
+            {
+                Text = "MEDIA DECK  •  PC COMPANION",
+                Font = new Font("Segoe UI", 10f, FontStyle.Bold),
+                ForeColor = Purple,
+                AutoSize = true,
+                Location = new Point(25, 61)
+            };
+            networkLabel = new System.Windows.Forms.Label
+            {
+                AutoSize = false,
+                Height = 48,
+                Width = 390,
+                Dock = System.Windows.Forms.DockStyle.Right,
+                Padding = new System.Windows.Forms.Padding(0, 0, 22, 0),
+                TextAlign = ContentAlignment.MiddleRight,
+                Font = new Font("Segoe UI", 10f, FontStyle.Bold),
+                ForeColor = Muted
+            };
+            header.Controls.Add(brand);
+            header.Controls.Add(product);
+            header.Controls.Add(networkLabel);
+
+            var pairingCard = new System.Windows.Forms.Panel
+            {
+                Dock = System.Windows.Forms.DockStyle.Top,
+                Height = 178,
+                BackColor = Card,
+                Padding = new System.Windows.Forms.Padding(22, 15, 22, 15)
+            };
+            modeLabel = new System.Windows.Forms.Label
+            {
+                Text = "PAIRING MODE CLOSED",
+                AutoSize = true,
+                Font = new Font("Segoe UI", 11f, FontStyle.Bold),
+                ForeColor = Purple,
+                Location = new Point(22, 15)
+            };
+            codeLabel = new System.Windows.Forms.Label
+            {
+                Text = "— — —",
+                AutoSize = true,
+                Font = new Font("Consolas", 31f, FontStyle.Bold),
+                ForeColor = Ink,
+                Location = new Point(18, 44)
+            };
+            timerLabel = new System.Windows.Forms.Label
+            {
+                Text = "Start pairing to add another controller without disconnecting the others.",
+                AutoSize = true,
+                Font = new Font("Segoe UI", 10f),
+                ForeColor = Muted,
+                Location = new Point(24, 104)
+            };
+            startButton = DeckButton("START PAIRING", Purple, Color.FromArgb(19, 13, 35), 154);
+            startButton.Location = new Point(420, 25);
+            startButton.Click += (_, _) => { security.StartPairing(); RefreshState(); };
+            copyButton = DeckButton("COPY CODE", CardRaised, Ink, 132);
+            copyButton.Location = new Point(584, 25);
+            copyButton.Click += (_, _) => CopyCode();
+            stopButton = DeckButton("STOP", Color.FromArgb(92, 45, 45), Ink, 132);
+            stopButton.Location = new Point(584, 83);
+            stopButton.Click += (_, _) => { security.StopPairing(); RefreshState(); };
+            var howLabel = new System.Windows.Forms.Label
+            {
+                Text = "PHONE: PC SETTINGS  →  ENTER THIS CODE  →  PAIR",
+                AutoSize = true,
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                ForeColor = Purple,
+                Location = new Point(24, 137)
+            };
+            pairingCard.Controls.AddRange([modeLabel, codeLabel, timerLabel, startButton, copyButton, stopButton, howLabel]);
+
+            var devicePanel = new System.Windows.Forms.Panel { Dock = System.Windows.Forms.DockStyle.Fill, Padding = new System.Windows.Forms.Padding(22, 18, 22, 12) };
+            deviceHeading = new System.Windows.Forms.Label
+            {
+                Text = "PAIRED CONTROLLERS",
+                Dock = System.Windows.Forms.DockStyle.Top,
+                Height = 34,
+                Font = new Font("Segoe UI", 12f, FontStyle.Bold),
+                ForeColor = Ink
+            };
+            deviceList = new System.Windows.Forms.ListView
+            {
+                Dock = System.Windows.Forms.DockStyle.Fill,
+                View = System.Windows.Forms.View.Details,
+                FullRowSelect = true,
+                MultiSelect = false,
+                HideSelection = false,
+                BackColor = Card,
+                ForeColor = Ink,
+                BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle,
+                Font = new Font("Segoe UI", 10f)
+            };
+            deviceList.Columns.Add("DEVICE", 210);
+            deviceList.Columns.Add("STATUS", 90);
+            deviceList.Columns.Add("ADDRESS", 135);
+            deviceList.Columns.Add("PAIRED", 130);
+            deviceList.Columns.Add("LAST SEEN", 135);
+            var actions = new System.Windows.Forms.FlowLayoutPanel
+            {
+                Dock = System.Windows.Forms.DockStyle.Bottom,
+                Height = 62,
+                FlowDirection = System.Windows.Forms.FlowDirection.LeftToRight,
+                Padding = new System.Windows.Forms.Padding(0, 10, 0, 0),
+                BackColor = Background
+            };
+            revokeButton = DeckButton("REVOKE SELECTED", Color.FromArgb(92, 45, 45), Ink, 172);
+            revokeButton.Enabled = false;
+            revokeButton.Click += (_, _) => RevokeSelected();
+            deviceList.SelectedIndexChanged += (_, _) => revokeButton.Enabled = deviceList.SelectedItems.Count == 1;
+            var forgetButton = DeckButton("FORGET ALL", CardRaised, Ink, 136);
+            forgetButton.Click += (_, _) => ForgetAll();
+            var hideButton = DeckButton("HIDE TO TRAY", CardRaised, Ink, 140);
+            hideButton.Click += (_, _) => Hide();
+            var exitButton = DeckButton("EXIT", CardRaised, Ink, 96);
+            exitButton.Click += (_, _) => exit();
+            actions.Controls.AddRange([revokeButton, forgetButton, hideButton, exitButton]);
+            devicePanel.Controls.Add(deviceList);
+            devicePanel.Controls.Add(deviceHeading);
+            devicePanel.Controls.Add(actions);
+
+            Controls.Add(devicePanel);
+            Controls.Add(pairingCard);
+            Controls.Add(header);
+            FormClosing += OnFormClosing;
+            Shown += (_, _) => CenterOnPrimaryDisplay();
+            refreshTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            refreshTimer.Tick += (_, _) => RefreshState();
+            refreshTimer.Start();
+            RefreshState();
+        }
+
+        public void BringUp()
+        {
+            Show();
+            if (WindowState == System.Windows.Forms.FormWindowState.Minimized) WindowState = System.Windows.Forms.FormWindowState.Normal;
+            EnsureVisible();
+            Activate();
+            BringToFront();
+            RefreshState();
+        }
+
+        public void AllowClose() { canClose = true; refreshTimer.Stop(); }
+
+        private void RefreshState()
+        {
+            var open = security.IsPairingOpen;
+            var seconds = security.PairingSecondsRemaining;
+            modeLabel.Text = open ? "PAIRING MODE OPEN" : "PAIRING MODE CLOSED";
+            modeLabel.ForeColor = open ? Gold : Purple;
+            codeLabel.Text = open ? FormatCode(security.PairingCode) : "— — —";
+            timerLabel.Text = open
+                ? $"Open for {seconds / 60}:{seconds % 60:00}. You can pair several phones during this window."
+                : "Start pairing to add another controller without disconnecting the others.";
+            networkLabel.Text = lanAccess.IsEnabled
+                ? $"LAN GATE  •  {lanAccess.Display.ToUpperInvariant()}\nSIGNED COMMANDS ONLY"
+                : "LAN ACCESS OFF\nLOOPBACK ONLY";
+            networkLabel.ForeColor = lanAccess.IsEnabled ? Green : Color.FromArgb(248, 113, 113);
+            RefreshDevices();
+        }
+
+        private void RefreshDevices()
+        {
+            var selected = deviceList.SelectedItems.Count == 1 ? deviceList.SelectedItems[0].Tag as string : null;
+            var snapshot = security.Snapshot();
+            deviceHeading.Text = $"PAIRED CONTROLLERS  •  {snapshot.Count}";
+            deviceList.BeginUpdate();
+            deviceList.Items.Clear();
+            foreach (var device in snapshot)
+            {
+                var item = new System.Windows.Forms.ListViewItem(device.Name) { Tag = device.Id };
+                item.SubItems.Add(device.Online ? "ONLINE" : "READY");
+                item.SubItems.Add(string.IsNullOrWhiteSpace(device.Address) ? "—" : device.Address);
+                item.SubItems.Add(device.PairedAtUtc.ToLocalTime().ToString("dd MMM HH:mm", CultureInfo.CurrentCulture));
+                item.SubItems.Add(device.LastSeenUtc.ToLocalTime().ToString("HH:mm:ss", CultureInfo.CurrentCulture));
+                item.ForeColor = device.Online ? Green : Ink;
+                deviceList.Items.Add(item);
+                if (device.Id == selected) item.Selected = true;
+            }
+            deviceList.EndUpdate();
+            revokeButton.Enabled = deviceList.SelectedItems.Count == 1;
+        }
+
+        private void CopyCode()
+        {
+            if (!security.IsPairingOpen) return;
+            try { System.Windows.Forms.Clipboard.SetText(security.PairingCode); } catch { }
+            timerLabel.Text = "Code copied. Enter it on any phone while pairing mode stays open.";
+        }
+
+        private void RevokeSelected()
+        {
+            if (deviceList.SelectedItems.Count != 1) return;
+            var item = deviceList.SelectedItems[0];
+            var deviceId = item.Tag as string;
+            if (deviceId is null) return;
+            var answer = System.Windows.Forms.MessageBox.Show(this,
+                $"Revoke {item.Text}? That phone will stop controlling this PC immediately.",
+                "Revoke controller",
+                System.Windows.Forms.MessageBoxButtons.OKCancel,
+                System.Windows.Forms.MessageBoxIcon.Warning);
+            if (answer == System.Windows.Forms.DialogResult.OK) security.Revoke(deviceId);
+            RefreshState();
+        }
+
+        private void ForgetAll()
+        {
+            var answer = System.Windows.Forms.MessageBox.Show(this,
+                "Forget every paired controller and open a fresh two-minute pairing window?",
+                "Forget all controllers",
+                System.Windows.Forms.MessageBoxButtons.OKCancel,
+                System.Windows.Forms.MessageBoxIcon.Warning);
+            if (answer != System.Windows.Forms.DialogResult.OK) return;
+            security.RevokeAllAndPair();
+            RefreshState();
+        }
+
+        private void OnFormClosing(object? sender, System.Windows.Forms.FormClosingEventArgs eventArgs)
+        {
+            if (canClose) return;
+            eventArgs.Cancel = true;
+            Hide();
+        }
+
+        private void EnsureVisible()
+        {
+            var visible = System.Windows.Forms.Screen.AllScreens.Any(screen => screen.WorkingArea.Contains(Bounds));
+            if (!visible) CenterOnPrimaryDisplay();
+        }
+
+        private void CenterOnPrimaryDisplay()
+        {
+            var area = System.Windows.Forms.Screen.PrimaryScreen?.WorkingArea ?? System.Windows.Forms.Screen.FromControl(this).WorkingArea;
+            Location = new Point(area.Left + Math.Max(0, (area.Width - Width) / 2), area.Top + Math.Max(0, (area.Height - Height) / 2));
+        }
+
+        private static System.Windows.Forms.Button DeckButton(string text, Color background, Color foreground, int width)
+        {
+            return new System.Windows.Forms.Button
+            {
+                Text = text,
+                Width = width,
+                Height = 48,
+                BackColor = background,
+                ForeColor = foreground,
+                FlatStyle = System.Windows.Forms.FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                Cursor = System.Windows.Forms.Cursors.Hand,
+                Margin = new System.Windows.Forms.Padding(0, 0, 10, 0),
+                UseVisualStyleBackColor = false
+            };
+        }
+
+        private static string FormatCode(string code) => code.Length == 6 ? $"{code[..3]}  {code[3..]}" : code;
     }
 }
 

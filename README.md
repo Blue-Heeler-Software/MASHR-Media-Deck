@@ -115,12 +115,13 @@ MASHR Media Deck is not a general remote-desktop app. It exposes a small allowli
 
 ## Security model
 
-The phone needs no Google login, YouTube account access, Android media permission, or cloud account. It pairs once with the PC companion using a six-digit tray code.
+The phone needs no Google login, YouTube account access, Android media permission, or cloud account. Each controller pairs locally with the PC companion during an explicit two-minute, six-digit pairing window.
 
-- Every media/control request is authenticated with HMAC-SHA256.
+- Every paired controller receives its own random 256-bit key, and every media/control request is authenticated with HMAC-SHA256.
 - Requests have a 30-second clock window and one-use nonce.
-- Successful pairing closes the code; resetting pairing rotates the 256-bit key.
-- Recommended LAN mode binds to one PC interface and accepts only the paired phone IP.
+- Pairing mode closes automatically after two minutes; adding a phone does not disconnect existing controllers.
+- The PC dashboard shows every paired controller, its last address and recent activity, and can revoke one controller independently.
+- Strict `PairedPhone` LAN mode accepts one phone IP. Multi-device `SameSubnet` mode stays bound to one PC interface and one directly connected subnet, with pairing closed except during an explicit window.
 - Control commands are fixed and allowlisted—there is no shell, arbitrary URL, file upload, process ID, window handle, or coordinate endpoint.
 - YouTube actions target only named accessibility controls in the selected YouTube browser window; the phone cannot send arbitrary clicks or keys.
 - YouTube volume accepts only a 0–100 level; the companion derives the exact verified Volume slider and browser render host instead of accepting caller-provided coordinates or key codes.
@@ -154,20 +155,27 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ### 2. Restrict LAN access
 
-LAN access is off by default. From an Administrator Command Prompt, enable the recommended paired-phone mode with the Pixel and PC addresses:
+LAN access is off by default. For one controller, enable the strict paired-phone mode from an Administrator Command Prompt:
 
 ```bat
 companion\Configure-LanAccess.cmd PairedPhone PHONE_IP PC_IP
 ```
 
-This keeps the existing Windows private/public network profile unchanged, disables stale broad rules, binds the companion to the chosen PC interface, and scopes the firewall to the given phone IP. `SameSubnet` is available as a convenience fallback, but every device on that subnet can then reach the authenticated HTTP listener.
+For WPS-style pairing of several controllers without editing the firewall for each phone, enable `SameSubnet` instead:
+
+```bat
+companion\Configure-LanAccess.cmd SameSubnet PHONE_IP PC_IP NETWORK_CIDR
+```
+
+Both modes keep the existing Windows private/public network profile unchanged, disable stale broad rules, and bind the companion to one chosen PC interface. `PairedPhone` scopes the firewall to one IP. `SameSubnet` lets devices on that directly connected subnet reach the HTTP listener, but pairing accepts a code only during the dashboard's two-minute mode and controls still require a device-specific signed key.
 
 ### 3. Pair the phone
 
-1. Start `companion/bin/Debug/net10.0-windows10.0.19041.0/MediaDeck.Companion.exe`.
-2. Right-click or double-click the **MASHR Media Deck** shield in the notification area.
-3. On the phone, tap **PC SETTINGS**, enter the six-digit code, and tap **PAIR**.
+1. Start `companion/bin/Debug/net10.0-windows10.0.19041.0/MediaDeck.Companion.exe`; its dashboard opens visibly.
+2. Click **START PAIRING**. The six-digit code remains valid for two minutes.
+3. On each phone, tap **PC SETTINGS**, enter that code, and tap **PAIR**. Pairing another phone does not revoke the first.
 4. Leave the PC address blank to use local discovery, or enter it directly.
+5. Use **REVOKE SELECTED** in the dashboard if one controller should lose access.
 
 The stable executable, Android package, scheduled-task name, discovery token, HMAC headers, and pairing-storage path retain their original `MediaDeck` identifiers so existing installs upgrade without losing pairing or restart behavior.
 

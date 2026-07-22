@@ -15,11 +15,12 @@ This protocol provides authenticated integrity and replay resistance, not encryp
 
 ## Pairing and signed requests
 
-`POST /api/pair` carries a six-digit one-time code in `X-MediaDeck-Pairing-Code`. A successful response returns a random 32-byte key encoded as Base64:
+`POST /api/pair` carries a six-digit code in `X-MediaDeck-Pairing-Code`, a persistent random controller ID in `X-MediaDeck-Device`, and a display-only bounded name in `X-MediaDeck-Device-Name`. The reference companion accepts pairing only during an explicit two-minute window. The same window may add several controllers, but every successful response returns a distinct random 32-byte key encoded as Base64:
 
 ```json
 {
   "key": "<base64>",
+  "deviceId": "<persistent-controller-id>",
   "algorithm": "HMAC-SHA256",
   "clockWindowSeconds": 30
 }
@@ -27,6 +28,8 @@ This protocol provides authenticated integrity and replay resistance, not encryp
 
 Every protected request includes:
 
+- `X-MediaDeck-Device`: the persistent controller ID returned or accepted during pairing.
+- `X-MediaDeck-Device-Name`: a bounded display name used only by the local PC roster.
 - `X-MediaDeck-Time`: current Unix time in seconds.
 - `X-MediaDeck-Nonce`: 16–64 ASCII alphanumeric characters, never reused.
 - `X-MediaDeck-Signature`: Base64-encoded HMAC-SHA256.
@@ -40,7 +43,7 @@ UNIX_TIMESTAMP\n
 NONCE
 ```
 
-The reference companion accepts a 30-second clock window, compares signatures in constant time, and rejects reused nonces. The request body is not part of the current signature, so state-changing inputs must remain bounded query parameters or fixed allowlisted actions until a versioned protocol adds body hashing.
+The reference companion looks up the per-device key, accepts a 30-second clock window, compares signatures in constant time, and rejects reused nonces in that device's namespace. Revoking a roster entry invalidates only that controller. The request body is not part of the current signature, so state-changing inputs must remain bounded query parameters or fixed allowlisted actions until a versioned protocol adds body hashing.
 
 Unauthenticated routes are limited to `/`, `/api/health`, and `/api/pair`. Browser-helper routes are loopback-only and are not part of the cross-platform core.
 
