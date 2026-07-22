@@ -11,7 +11,7 @@ All notable MASHR Media Deck changes are recorded here.
 ### Documentation
 
 - Released MASHR Media Deck as free and open-source software under the MIT License.
-- Re-captured the complete nine-image Pixel 7 gallery on 1.4.7, including extension-free YouTube scenes, the current action row, chapter jumping, held Alt+Tab, guarded replay, local pairing, and a locally generated VLC demo.
+- Re-captured the complete gallery on a real Pixel 7 running 1.4.8, cache-busted every published image path, and rebuilt the VLC demo artwork from the real UI instead of a drawn app mock-up.
 - Made the extension boundary explicit: the complete core deck is extension-free; only the optional related-video grid uses the helper.
 - Updated README, press copy, security notes, screenshot captions, and social artwork around the current extension-free controls and cross-platform scaffold boundary.
 
