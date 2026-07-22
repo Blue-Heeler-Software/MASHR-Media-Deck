@@ -22,6 +22,7 @@ All notable MASHR Media Deck changes are recorded here.
 
 ### Changed
 
+- Renamed the large system-volume controls from ambiguous `DOWN` / `UP` labels to explicit **VOLUME DOWN** / **VOLUME UP** labels.
 - Existing single-phone installs migrate their key into the new roster without forcing the Pixel to pair again; future Android requests identify the controller and update its dashboard activity state.
 - Discovery now combines directed interface broadcasts with an outbound same-port companion beacon, so first-run phones can find a tightly firewalled PC without widening the firewall's exact local-address scope.
 - Documented `SameSubnet` as the explicit firewall mode for WPS-style multi-device pairing while retaining strict one-IP `PairedPhone` mode.
