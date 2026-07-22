@@ -15,22 +15,22 @@ func printHelp() {
 }
 
 do {
-    switch arguments {
-    case [], ["--help"], ["-h"], ["help"]:
+    if arguments.isEmpty || arguments == ["--help"] || arguments == ["-h"] || arguments == ["help"] {
         printHelp()
         exit(0)
-    case ["probe"]:
+    } else if arguments == ["probe"] {
         let snapshot = try provider.probe()
         FileHandle.standardOutput.write(try encoder.encode(snapshot))
         print("")
         exit(0)
-    case ["command", let command]:
+    } else if arguments.count == 2 && arguments[0] == "command" {
+        let command = arguments[1]
         try provider.control(command)
         let response = CommandResponse(action: command, provider: "AppleScript")
         FileHandle.standardOutput.write(try encoder.encode(response))
         print("")
         exit(0)
-    default:
+    } else {
         fputs("Unknown arguments. Run with --help.\n", stderr)
         exit(2)
     }
@@ -38,4 +38,3 @@ do {
     fputs("\(error.localizedDescription)\n", stderr)
     exit(3)
 }
-
