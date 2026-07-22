@@ -17,6 +17,7 @@ All notable MASHR Media Deck changes are recorded here.
 
 ### Changed
 
+- Renamed the blue **MOVE MEDIA** control to the shorter, clearer **MOVE SCREEN** label.
 - Renamed the armed replay control to **RECORD LAST 2:00 OF GAME** so its gameplay-capture purpose is obvious at a glance.
 - Reduced the outer deck gutter, card inset, and control-row spacing so the Pixel 7 layout uses more of the available screen width while retaining safe rounded edges.
 - Extended the control stack toward the Pixel navigation area, made Mute narrower, and gave both volume controls more width, height, and label emphasis.
