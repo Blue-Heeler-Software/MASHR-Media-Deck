@@ -73,8 +73,8 @@ public final class MainActivity extends Activity {
     private ChapterSeekBar timeline;
     private SeekBar youtubeVolume;
     private SwipeReplayView replay;
-    private String base="",deviceKey="",lastTrack="";
-    private boolean running,requestPending,userSeeking,youtubeVolumeSeeking,altHeld,youtubeAvailable,artworkPending,artworkLoaded,replayAvailable,replayEnabled;
+    private String base="",deviceKey="",deviceId="",deviceName="",lastTrack="";
+    private boolean running,destroyed,requestPending,userSeeking,youtubeVolumeSeeking,altHeld,youtubeAvailable,artworkPending,artworkLoaded,replayAvailable,replayEnabled;
     private long durationMs,positionMs,lastArtworkAttemptMs;
     private int replaySeconds=120,skipSeconds=10;
     private final ArrayList<MediaChapter> chapters=new ArrayList<>();
@@ -86,13 +86,19 @@ public final class MainActivity extends Activity {
         getWindow().setNavigationBarColor(BG);
         base=getPreferences(0).getString("pc","");
         deviceKey=getPreferences(0).getString("deviceKey","");
+        deviceId=getPreferences(0).getString("deviceId","");
+        if(deviceId.isEmpty()){
+            deviceId=UUID.randomUUID().toString().replace("-","");
+            getPreferences(0).edit().putString("deviceId",deviceId).apply();
+        }
+        deviceName=deviceDisplayName();
         skipSeconds=Math.max(1,Math.min(120,getPreferences(0).getInt("skipSeconds",10)));
         build();
     }
 
     @Override protected void onResume(){super.onResume();running=true;refresh(true);}
     @Override protected void onPause(){running=false;ui.removeCallbacks(poll);if(altHeld)endAltGesture();super.onPause();}
-    @Override protected void onDestroy(){io.shutdownNow();thumbnails.shutdownNow();super.onDestroy();}
+    @Override protected void onDestroy(){destroyed=true;running=false;ui.removeCallbacksAndMessages(null);io.shutdownNow();thumbnails.shutdownNow();super.onDestroy();}
 
     private void build(){
         LinearLayout root=new LinearLayout(this);
@@ -322,7 +328,7 @@ public final class MainActivity extends Activity {
     }
 
     private void refresh(boolean showConnecting){
-        if(requestPending)return;
+        if(destroyed||io.isShutdown()||requestPending)return;
         ui.removeCallbacks(poll);
         if(deviceKey.isEmpty()){showPairingNeeded();return;}
         requestPending=true;
@@ -349,6 +355,7 @@ public final class MainActivity extends Activity {
     }
 
     private void apply(JSONObject data){
+        if(destroyed)return;
         requestPending=false;
         String newTitle=data.optString("title","Nothing playing"),newArtist=data.optString("artist","Start media on your PC");
         boolean playing=data.optBoolean("playing");
@@ -396,8 +403,9 @@ public final class MainActivity extends Activity {
     private void schedule(){if(running){ui.removeCallbacks(poll);ui.postDelayed(poll,2500);}}
 
     private void loadArtwork(){
+        if(destroyed||io.isShutdown())return;
         artworkPending=true;
-        io.execute(()->{
+        try{io.execute(()->{
             HttpURLConnection connection=null;
             try{
                 String path="/api/art?track="+System.currentTimeMillis();
@@ -411,8 +419,8 @@ public final class MainActivity extends Activity {
                 Log.w("MASHRMediaDeck","Artwork request returned HTTP "+code);
             }catch(Exception error){Log.w("MASHRMediaDeck","Artwork load failed",error);}
             finally{if(connection!=null)connection.disconnect();}
-            ui.post(()->{artworkPending=false;artworkLoaded=false;});
-        });
+            if(!destroyed)ui.post(()->{artworkPending=false;artworkLoaded=false;});
+        });}catch(java.util.concurrent.RejectedExecutionException ignored){artworkPending=false;}
     }
 
     private void showYouTubeSuggestions(){
@@ -483,16 +491,17 @@ public final class MainActivity extends Activity {
     }
 
     private void loadThumbnail(String address,ImageView target){
-        thumbnails.execute(()->{
+        if(destroyed||thumbnails.isShutdown())return;
+        try{thumbnails.execute(()->{
             HttpURLConnection connection=null;
             try{
                 connection=(HttpURLConnection)new URL(address).openConnection();
                 connection.setConnectTimeout(2500);
                 connection.setReadTimeout(2500);
                 Bitmap bitmap=BitmapFactory.decodeStream(connection.getInputStream());
-                if(bitmap!=null)ui.post(()->{if(!isFinishing())target.setImageBitmap(bitmap);});
+                if(bitmap!=null&&!destroyed)ui.post(()->{if(!isFinishing()&&!isDestroyed())target.setImageBitmap(bitmap);});
             }catch(Exception ignored){}finally{if(connection!=null)connection.disconnect();}
-        });
+        });}catch(java.util.concurrent.RejectedExecutionException ignored){}
     }
 
     private void playYouTube(String videoId,String videoTitle){
@@ -627,13 +636,13 @@ public final class MainActivity extends Activity {
         form.addView(address,new LinearLayout.LayoutParams(-1,dp(56)));
         EditText code=new EditText(this);
         code.setSingleLine();
-        code.setHint(deviceKey.isEmpty()?"6-digit tray pairing code":"Pairing code (only after reset)");
+        code.setHint(deviceKey.isEmpty()?"6-digit PC pairing code":"Pairing code (when adding again)");
         code.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
         code.setTextSize(17);
         form.addView(code,new LinearLayout.LayoutParams(-1,dp(56)));
         new AlertDialog.Builder(this)
             .setTitle("PC SETTINGS")
-            .setMessage("Back and Ahead use this default when no blue Scene jump is available. The tray code is local device pairing, not a YouTube login.")
+            .setMessage("On the PC, open MASHR Media Deck and press Start Pairing. The two-minute code adds this phone without disconnecting your other controllers.")
             .setView(form)
             .setNegativeButton("CANCEL",null)
             .setPositiveButton(deviceKey.isEmpty()?"PAIR":"CONNECT",(dialog,which)->{
@@ -666,17 +675,22 @@ public final class MainActivity extends Activity {
                 }
                 HttpURLConnection connection=openConnection("/api/pair","POST",false);
                 connection.setRequestProperty("X-MediaDeck-Pairing-Code",code);
+                connection.setRequestProperty("X-MediaDeck-Device",deviceId);
+                connection.setRequestProperty("X-MediaDeck-Device-Name",deviceName);
                 connection.setDoOutput(true);
                 connection.getOutputStream().close();
                 String response=readResponse(connection);
                 connection.disconnect();
-                String received=new JSONObject(response).optString("key","");
+                JSONObject paired=new JSONObject(response);
+                String received=paired.optString("key","");
                 if(received.isEmpty())throw new IOException("No key returned");
                 if(Base64.decode(received,Base64.DEFAULT).length!=32)throw new IOException("Invalid pairing key");
+                String assignedId=paired.optString("deviceId",deviceId);
+                if(!assignedId.isEmpty())deviceId=assignedId;
                 deviceKey=received;
-                getPreferences(0).edit().putString("deviceKey",deviceKey).apply();
+                getPreferences(0).edit().putString("deviceKey",deviceKey).putString("deviceId",deviceId).apply();
                 requestPending=false;
-                ui.post(()->{Toast.makeText(this,"Phone paired securely",Toast.LENGTH_SHORT).show();lastTrack="";refresh(true);});
+                ui.post(()->{Toast.makeText(this,deviceName+" paired securely",Toast.LENGTH_SHORT).show();lastTrack="";refresh(true);});
             }catch(Exception error){requestPending=false;ui.post(()->{status.setText("PAIRING FAILED  /  CHECK THE TRAY CODE");status.setTextColor(Color.rgb(248,113,113));Toast.makeText(this,"Pairing failed: "+safeMessage(error),Toast.LENGTH_LONG).show();});}
         });
     }
@@ -714,6 +728,8 @@ public final class MainActivity extends Activity {
         connection.setRequestProperty("X-MediaDeck-Time",Long.toString(timestamp));
         connection.setRequestProperty("X-MediaDeck-Nonce",nonce);
         connection.setRequestProperty("X-MediaDeck-Signature",signature);
+        connection.setRequestProperty("X-MediaDeck-Device",deviceId);
+        connection.setRequestProperty("X-MediaDeck-Device-Name",deviceName);
     }
 
     private String readResponse(HttpURLConnection connection)throws Exception{
@@ -748,6 +764,13 @@ public final class MainActivity extends Activity {
     }
 
     private void clearPairing(){deviceKey="";getPreferences(0).edit().remove("deviceKey").apply();}
+    private String deviceDisplayName(){
+        String manufacturer=Build.MANUFACTURER==null?"":Build.MANUFACTURER.trim();
+        String model=Build.MODEL==null?"Android device":Build.MODEL.trim();
+        String value=(manufacturer.isEmpty()?model:manufacturer+" "+model).replaceAll("[\\p{Cntrl}]","").trim();
+        if(value.isEmpty())value="Android device";
+        return value.length()>48?value.substring(0,48):value;
+    }
     private boolean isUnauthorized(Exception error){return error.getMessage()!=null&&(error.getMessage().contains("HTTP 401")||error.getMessage().contains("HTTP 409"));}
     private String safeMessage(Exception error){String message=error.getMessage();if(message==null)return "unknown error";return message.length()>120?message.substring(0,120):message;}
     private String apiError(Exception error){String message=error.getMessage();if(message==null)return "unknown error";int jsonStart=message.indexOf('{');if(jsonStart>=0){try{String detail=new JSONObject(message.substring(jsonStart)).optString("error","");if(!detail.isEmpty())return detail;}catch(Exception ignored){}}return safeMessage(error);}

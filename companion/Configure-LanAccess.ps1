@@ -77,7 +77,7 @@ if ($Disable) {
 
 $phone = $null
 if (-not [System.Net.IPAddress]::TryParse($PhoneAddress, [ref]$phone) -or $phone.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) {
-    throw 'Provide the Pixel IPv4 address with -PhoneAddress.'
+    throw 'Provide an IPv4 address for a phone on the target local subnet with -PhoneAddress.'
 }
 
 $connection = Get-NetIPAddress -AddressFamily IPv4 |
