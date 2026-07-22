@@ -4,7 +4,7 @@
 
 **Product:** MASHR Media Deck<br>
 **Category:** Local second-screen media remote for PC gamers<br>
-**Current release:** 1.4.8 developer preview<br>
+**Current release:** 1.4.11 developer preview<br>
 **Platforms:** Android 8+ phone; Windows 10/11 PC companion; Linux/macOS contributor scaffolds<br>
 **Developer:** Blue Heeler Software
 
@@ -36,7 +36,7 @@ The core deck needs no browser extension. YouTube artwork, metadata, live progre
 
 - Stay in-game while controlling PC music and video.
 - Glanceable artwork, metadata, and live progress.
-- Creator chapter markers and a tappable scene list.
+- Creator chapter markers, a tappable scene list, and split blue adjacent-scene jumps.
 - Large YouTube Like, Dislike, and Subscribe controls through Windows accessibility.
 - Tiny actual-player YouTube volume control that leaves Windows master volume unchanged.
 - No browser extension for the complete core deck.
@@ -52,9 +52,9 @@ The core deck needs no browser extension. YouTube artwork, metadata, live progre
 
 ### Extension-free YouTube deck
 
-![YouTube chapters on the main deck](images/pixel7-youtube-scenes-v148.png)
+![Split scene jumps and configurable Back/Ahead controls on the main deck](images/pixel7-annotation-seek-v1411.png)
 
-**Caption:** MASHR finds artwork, live time, and creator chapters from the selected YouTube session without a browser extension.
+**Caption:** MASHR finds artwork, live time, and creator chapters without a browser extension; blue Scene edges jump between annotations while dark Back/Ahead uses the user's default skip.
 
 ### YouTube actions
 
