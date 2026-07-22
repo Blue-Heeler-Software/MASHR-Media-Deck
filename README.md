@@ -8,6 +8,7 @@
 [![Windows 10/11](https://img.shields.io/badge/Windows-10%20%2F%2011-A78BFA?style=flat-square&logo=windows11&logoColor=white)](#build-and-run)
 [![Local only](https://img.shields.io/badge/network-local%20only-22C55E?style=flat-square)](#security-model)
 [![No cloud account](https://img.shields.io/badge/cloud-none-171923?style=flat-square)](#security-model)
+[![License: MIT](https://img.shields.io/badge/license-MIT-F7C948?style=flat-square)](LICENSE)
 
 MASHR Media Deck is a second-screen Android remote built for PC gamers who do not want to Alt+Tab out of a game just to manage music or video. The Pixel shows the selected Windows media session, artwork, live timeline, chapter markers, and large controls while the game keeps focus.
 
@@ -139,6 +140,10 @@ Start-ScheduledTask -TaskName 'MediaDeck Companion'
 
 ## Project status
 
-MASHR Media Deck `1.4.0` is an owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. It has no analytics, cloud backend, advertising, or account system.
+MASHR Media Deck `1.4.0` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. It has no analytics, cloud backend, advertising, or account system.
 
 Release history is in [CHANGELOG.md](CHANGELOG.md).
+
+## License
+
+MASHR Media Deck is free and open-source software released under the [MIT License](LICENSE). Copyright © 2026 Blue Heeler Software.
