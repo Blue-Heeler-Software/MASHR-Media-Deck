@@ -233,8 +233,8 @@ public final class MainActivity extends Activity {
         LinearLayout volumeRow=new LinearLayout(this);
         volumeRow.setGravity(Gravity.CENTER);
         volumeRow.setPadding(0,dp(5),0,0);
-        addWeighted(volumeRow,iconAction("DOWN","volumedown",10,DeckIcon.VOLUME_DOWN,INK,19,true));
-        addWeighted(volumeRow,iconAction("UP","volumeup",10,DeckIcon.VOLUME_UP,INK,19,true));
+        addWeighted(volumeRow,iconAction("VOLUME DOWN","volumedown",10,DeckIcon.VOLUME_DOWN,INK,19,true));
+        addWeighted(volumeRow,iconAction("VOLUME UP","volumeup",10,DeckIcon.VOLUME_UP,INK,19,true));
         card.addView(volumeRow,new LinearLayout.LayoutParams(-1,dp(60)));
 
         LinearLayout modeRow=new LinearLayout(this);
