@@ -4,7 +4,7 @@
 
 **Product:** MASHR Media Deck<br>
 **Category:** Local second-screen media remote for PC gamers<br>
-**Current release:** 1.4.7 developer preview<br>
+**Current release:** 1.4.8 developer preview<br>
 **Platforms:** Android 8+ phone; Windows 10/11 PC companion; Linux/macOS contributor scaffolds<br>
 **Developer:** Blue Heeler Software
 
@@ -88,7 +88,7 @@ The core deck needs no browser extension. YouTube artwork, metadata, live progre
 
 ### Screenshot button
 
-![Dedicated screenshot button while controlling VLC](images/pixel7-screenshot-button.png)
+![Dedicated Screenshot and Move Screen controls](images/pixel7-screenshot-button.png)
 
 **Caption:** Capture the PC through NVIDIA's configured shortcut without leaving the game; Windows provides the fallback.
 
@@ -106,7 +106,7 @@ The core deck needs no browser extension. YouTube artwork, metadata, live progre
 
 **Caption:** Replay state is explicit: orange arms the rolling buffer; green reads **RECORD LAST 2:00 OF GAME** using NVIDIA's configured history length.
 
-**Alt text:** Lower part of MASHR Media Deck with screenshot, monitor switching, YouTube reactions, Alt+Tab, player volume, and Record last 2 minutes of game controls.
+**Alt text:** Lower part of MASHR Media Deck with Screenshot, blue Move Screen, YouTube reactions, Alt+Tab, player volume, and Record last 2 minutes of game controls.
 
 ## Brand palette
 

@@ -237,7 +237,7 @@ public final class MainActivity extends Activity {
         screenshot.setOnClickListener(v->takeScreenshot());
         addWeighted(utilityRow,screenshot,.2506f);
         utilityRow.addView(new View(this),new LinearLayout.LayoutParams(dp(4),1));
-        Button moveScreen=largeAction("MOVE MEDIA  >","movescreen",12);
+        Button moveScreen=largeAction("MOVE SCREEN  >","movescreen",12);
         moveScreen.setTextColor(Color.BLACK);
         moveScreen.setBackground(round(Color.rgb(125,211,252),20));
         moveScreen.setContentDescription("Move the selected PC media window to the next monitor");
@@ -543,7 +543,7 @@ public final class MainActivity extends Activity {
     private void youtubeAction(String command,String label){io.execute(()->{try{JSONObject result=new JSONObject(post("/api/control/"+command));String message=result.optString("message",label+" sent to YouTube");ui.post(()->Toast.makeText(this,message,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,label+" unavailable: "+apiError(error),Toast.LENGTH_LONG).show());}});}
     private void setYoutubeVolume(int level){io.execute(()->{try{JSONObject result=new JSONObject(post("/api/youtube/volume?level="+level));int applied=result.optInt("volume",level);ui.post(()->youtubeVolumeValue.setText(applied+"%"));}catch(Exception error){ui.post(()->Toast.makeText(this,"YouTube volume unavailable: "+apiError(error),Toast.LENGTH_LONG).show());}});}
     private void takeScreenshot(){io.execute(()->{try{JSONObject captured=new JSONObject(post("/api/control/screenshot"));String provider=captured.optString("provider","PC");ui.post(()->Toast.makeText(this,"Screenshot saved by "+provider,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,"Screenshot failed: "+safeMessage(error),Toast.LENGTH_LONG).show());}});}
-    private void moveScreen(){io.execute(()->{try{JSONObject moved=new JSONObject(post("/api/control/movescreen"));String display=moved.optString("display","next screen");ui.post(()->Toast.makeText(this,"Media moved to "+display,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,"Could not move media: "+safeMessage(error),Toast.LENGTH_LONG).show());}});}
+    private void moveScreen(){io.execute(()->{try{JSONObject moved=new JSONObject(post("/api/control/movescreen"));String display=moved.optString("display","next screen");ui.post(()->Toast.makeText(this,"Screen moved to "+display,Toast.LENGTH_SHORT).show());}catch(Exception error){ui.post(()->Toast.makeText(this,"Could not move screen: "+safeMessage(error),Toast.LENGTH_LONG).show());}});}
     private void sendKeyCommand(String command){io.execute(()->{try{post("/api/control/"+command);}catch(Exception ignored){}});}
     private void beginAltGesture(){if(altHeld)return;altHeld=true;altTab.setText("ALT\nHELD");altTab.setBackground(round(Color.rgb(248,113,113),20));previous.setText("<  WINDOW");next.setText("WINDOW  >");sendKeyCommand("altdown");}
     private void endAltGesture(){if(!altHeld)return;altHeld=false;sendKeyCommand("altup");altTab.setText("HOLD\nALT+TAB");altTab.setBackground(round(Color.rgb(251,191,36),20));previous.setText("<  PREV");next.setText("NEXT  >");}

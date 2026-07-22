@@ -1,6 +1,6 @@
 # MASHR Media Deck screenshots
 
-These are refreshed real Pixel 7 captures from MASHR Media Deck 1.4.7. YouTube artwork, live progress, chapter markers, reactions, subscription, the scene picker, playback controls, monitor switching, Alt+Tab, replay, and local pairing all work without a browser extension.
+These are real Pixel 7 captures from MASHR Media Deck 1.4.7–1.4.8. The latest action and gamer-control captures show the renamed blue **MOVE SCREEN** button. YouTube artwork, live progress, chapter markers, reactions, subscription, the scene picker, playback controls, monitor switching, Alt+Tab, replay, and local pairing all work without a browser extension.
 
 ## Extension-free YouTube deck
 
@@ -40,7 +40,7 @@ This capture uses a locally generated MASHR demo clip in VLC. The same portrait 
 
 ## Dedicated screenshot action
 
-![MASHR Media Deck screenshot button while controlling VLC](images/pixel7-screenshot-button.png)
+![MASHR Media Deck Screenshot and Move Screen controls](images/pixel7-screenshot-button.png)
 
 The lavender **SCREENSHOT** button invokes NVIDIA Overlay's configured Screenshot shortcut when available. A fixed Windows saved-screenshot shortcut is the fallback; the phone cannot supply arbitrary keys.
 
@@ -54,7 +54,7 @@ Pairing is between the phone and PC companion. The app does not ask for a YouTub
 
 ![MASHR Media Deck gamer controls](images/pixel7-replay-control.png)
 
-Blue moves the media window between screens, yellow controls Alt+Tab, and green **RECORD LAST 2:00 OF GAME** makes the armed Instant Replay result unmistakable.
+Blue **MOVE SCREEN** moves the media window between displays, yellow controls Alt+Tab, and green **RECORD LAST 2:00 OF GAME** makes the armed Instant Replay result unmistakable.
 
 ## Social card
 

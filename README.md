@@ -77,7 +77,7 @@ Every screen below is a real Pixel 7 capture from the extension-free core.
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/pixel7-screenshot-button.png" alt="MASHR Media Deck screenshot and media-window buttons while controlling VLC"><br>
+      <img src="docs/images/pixel7-screenshot-button.png" alt="MASHR Media Deck Screenshot and Move Screen controls"><br>
       <strong>Capture without leaving the game.</strong><br>
       The dedicated button uses NVIDIA's configured Screenshot shortcut, with a Windows fallback—and the same deck works with VLC.
     </td>
@@ -106,7 +106,7 @@ MASHR Media Deck is not a general remote-desktop app. It exposes a small allowli
 | A video drifts into filler | Tap **+10 SEC** or a chapter marker |
 | A video earns a reaction | Tap **LIKE**, **DISLIKE**, or **SUB** |
 | YouTube itself is too loud | Drag the tiny **YT VOL** slider |
-| The media window is on the wrong display | Tap **MOVE MEDIA TO NEXT SCREEN** |
+| The media window is on the wrong display | Tap **MOVE SCREEN** |
 | Something worth clipping just happened | Swipe **RECORD LAST 2:00 OF GAME** |
 | A different PC window is needed | Hold **ALT + TAB**, then tap **PREV/NEXT** |
 
@@ -230,7 +230,7 @@ Both scaffolds emit the shared `/api/now` snapshot shape and expose a small allo
 
 ## Project status
 
-MASHR Media Deck `1.4.7` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. Linux and macOS are contributor scaffolds, not released companions. The project has no analytics, cloud backend, advertising, or account system.
+MASHR Media Deck `1.4.8` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. Linux and macOS are contributor scaffolds, not released companions. The project has no analytics, cloud backend, advertising, or account system.
 
 Release history is in [CHANGELOG.md](CHANGELOG.md).
 
