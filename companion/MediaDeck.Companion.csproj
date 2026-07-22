@@ -10,6 +10,7 @@
     <Product>MASHR Media Deck</Product>
     <Description>Secure local second-screen media remote for PC gamers</Description>
     <Version>1.4.3</Version>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <DefaultItemExcludes>$(DefaultItemExcludes);.artifacts/**</DefaultItemExcludes>
   </PropertyGroup>
 </Project>

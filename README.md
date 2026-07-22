@@ -215,7 +215,7 @@ Start-ScheduledTask -TaskName 'MediaDeck Companion'
 
 ## Project status
 
-MASHR Media Deck `1.4.0` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. It has no analytics, cloud backend, advertising, or account system.
+MASHR Media Deck `1.4.6` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. It has no analytics, cloud backend, advertising, or account system.
 
 Release history is in [CHANGELOG.md](CHANGELOG.md).
 

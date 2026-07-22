@@ -18,7 +18,7 @@
 
 ## One-line description
 
-MASHR Media Deck turns an Android phone into a secure, extension-free local media deck for PC gamers who do not want to Alt+Tab.
+MASHR Media Deck is an MIT-licensed, open-source Android remote that turns a phone into a secure, extension-free local media deck for PC gamers who do not want to Alt+Tab.
 
 ## Short description
 
@@ -40,6 +40,7 @@ The core deck needs no browser extension. YouTube artwork, metadata, live progre
 - Large YouTube Like, Dislike, and Subscribe controls through Windows accessibility.
 - Tiny actual-player YouTube volume control that leaves Windows master volume unchanged.
 - No browser extension for the complete core deck.
+- Free and open-source under the MIT License.
 - Guarded arm/save flow for NVIDIA Instant Replay.
 - Hold-to-use Alt+Tab window switching.
 - Focus-preserving media-window monitor cycling.
