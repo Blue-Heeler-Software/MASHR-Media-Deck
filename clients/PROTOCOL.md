@@ -16,9 +16,9 @@ This protocol provides authenticated integrity and replay resistance, not encryp
 
 ## Pairing and signed requests
 
-`POST /api/pair/nearby` is the default pairing path. The controller sends a persistent random ID in `X-MediaDeck-Device`, a bounded display name in `X-MediaDeck-Device-Name`, and a fresh 32–64 character random token in `X-MediaDeck-Pairing-Request`. The companion returns `202 waiting` and displays the request's name and source IP. After one local dashboard click, the exact same ID, token, and source IP may call the route again within 30 seconds to receive a key. Claims are atomic and one-use; an unapproved request expires after 45 seconds and grants nothing.
+`POST /api/pair/nearby` is the default pairing path. The controller sends a persistent random ID in `X-MediaDeck-Device`, a bounded display name in `X-MediaDeck-Device-Name`, a fresh 32–64 character random token in `X-MediaDeck-Pairing-Request`, and an X.509 SubjectPublicKeyInfo-encoded 2048–4096 bit RSA key in `X-MediaDeck-Pairing-Public-Key`. The companion returns `202 waiting` and displays the request's name and source IP. After one local dashboard click, the exact same ID, token, public key, and source IP may call the route again within 30 seconds. The response contains `wrappedKey`, an RSA-OAEP-SHA256 encryption of the 32-byte HMAC key; the raw key is never sent by this route. Claims are atomic and one-use.
 
-`POST /api/pair` is the fallback path. It carries a six-digit code in `X-MediaDeck-Pairing-Code` plus the same ID and name headers. The reference companion accepts the code only during an explicit two-minute window. Both pairing paths return a distinct random 32-byte key encoded as Base64:
+`POST /api/pair` is the fallback path. It carries a six-digit code in `X-MediaDeck-Pairing-Code` plus the same ID and name headers. The reference companion accepts the code only during an explicit two-minute window and returns a distinct random 32-byte key encoded as Base64:
 
 ```json
 {
@@ -28,6 +28,8 @@ This protocol provides authenticated integrity and replay resistance, not encryp
   "clockWindowSeconds": 30
 }
 ```
+
+The nearby response instead uses `wrappedKey` and reports `RSA-OAEP-SHA256+HMAC-SHA256`; clients decrypt it with the private half of the ephemeral request key before storing the resulting 32-byte HMAC key.
 
 Every protected request includes:
 

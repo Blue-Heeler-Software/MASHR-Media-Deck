@@ -9,6 +9,7 @@ All notable MASHR Media Deck changes are recorded here.
 - Added a visible Windows companion dashboard with a large timed pairing code, network-gate status, paired-controller roster, online/last-seen state, and individual revocation.
 - Added two-minute additive pairing mode for up to 16 Android controllers, with a distinct 256-bit HMAC key and persistent device identity for every phone.
 - Added default one-click nearby pairing: unpaired phones announce an expiring request, the dashboard approves the selected name/IP once, and only that phone can collect its one-use token/IP-bound key. The numeric code remains as fallback.
+- Nearby approval wraps the new HMAC key with the phone's ephemeral RSA-2048 public key using OAEP-SHA256, so the raw credential never crosses the WLAN.
 - Added buildable Linux (`playerctl`/MPRIS) and macOS (Music/Spotify AppleScript) provider scaffolds, a shared companion protocol contract, and CI build jobs. The scaffolds intentionally open no network ports until pairing and signed-request parity exists.
 
 ### Documentation

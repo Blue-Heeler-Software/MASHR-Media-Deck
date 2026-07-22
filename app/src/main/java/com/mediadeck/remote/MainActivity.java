@@ -54,6 +54,12 @@ import java.net.InterfaceAddress;
 import java.net.NetworkInterface;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.spec.MGF1ParameterSpec;
+import javax.crypto.Cipher;
+import javax.crypto.spec.OAEPParameterSpec;
+import javax.crypto.spec.PSource;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -78,6 +84,7 @@ public final class MainActivity extends Activity {
     private SeekBar youtubeVolume;
     private SwipeReplayView replay;
     private String base="",deviceKey="",deviceId="",deviceName="",lastTrack="",pairRequestToken="";
+    private KeyPair nearbyPairKey;
     private boolean running,destroyed,requestPending,userSeeking,youtubeVolumeSeeking,altHeld,youtubeAvailable,artworkPending,artworkLoaded,replayAvailable,replayEnabled;
     private long durationMs,positionMs,lastArtworkAttemptMs;
     private int replaySeconds=120,skipSeconds=10;
@@ -674,6 +681,7 @@ public final class MainActivity extends Activity {
         status.setTextColor(Color.rgb(251,191,36));
         io.execute(()->{
             try{
+                if(nearbyPairKey==null){KeyPairGenerator generator=KeyPairGenerator.getInstance("RSA");generator.initialize(2048);nearbyPairKey=generator.generateKeyPair();}
                 if(base.isEmpty()){
                     String discovered=discoverPc();
                     if(discovered==null)throw new IOException("PC not found");
@@ -688,13 +696,19 @@ public final class MainActivity extends Activity {
                     reply=sendNearbyPairRequest();
                 }
                 Log.i("MASHRMediaDeck","Nearby pairing reply from "+base+": "+reply.optString("status","unknown"));
-                String received=reply.optString("key","");
-                if(!received.isEmpty()){
-                    if(Base64.decode(received,Base64.DEFAULT).length!=32)throw new IOException("Invalid pairing key");
+                String encrypted=reply.optString("wrappedKey","");
+                if(!encrypted.isEmpty()){
+                    Cipher cipher=Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
+                    OAEPParameterSpec oaep=new OAEPParameterSpec("SHA-256","MGF1",MGF1ParameterSpec.SHA256,PSource.PSpecified.DEFAULT);
+                    cipher.init(Cipher.DECRYPT_MODE,nearbyPairKey.getPrivate(),oaep);
+                    byte[] rawKey=cipher.doFinal(Base64.decode(encrypted,Base64.DEFAULT));
+                    if(rawKey.length!=32)throw new IOException("Invalid pairing key");
+                    String received=Base64.encodeToString(rawKey,Base64.NO_WRAP);
                     String assignedId=reply.optString("deviceId",deviceId);
                     if(!assignedId.isEmpty())deviceId=assignedId;
                     deviceKey=received;
                     pairRequestToken="";
+                    nearbyPairKey=null;
                     getPreferences(0).edit().putString("deviceKey",deviceKey).putString("deviceId",deviceId).apply();
                     requestPending=false;
                     ui.post(()->{if(destroyed)return;Toast.makeText(this,deviceName+" paired securely",Toast.LENGTH_SHORT).show();lastTrack="";refresh(true);});
@@ -715,6 +729,7 @@ public final class MainActivity extends Activity {
         connection.setRequestProperty("X-MediaDeck-Device",deviceId);
         connection.setRequestProperty("X-MediaDeck-Device-Name",deviceName);
         connection.setRequestProperty("X-MediaDeck-Pairing-Request",pairRequestToken);
+        connection.setRequestProperty("X-MediaDeck-Pairing-Public-Key",Base64.encodeToString(nearbyPairKey.getPublic().getEncoded(),Base64.NO_WRAP));
         connection.setDoOutput(true);
         try{connection.getOutputStream().close();return new JSONObject(readResponse(connection));}
         finally{connection.disconnect();}
@@ -840,7 +855,7 @@ public final class MainActivity extends Activity {
         }catch(Exception error){Log.w("MASHRMediaDeck","PC discovery failed",error);return null;}
     }
 
-    private void clearPairing(){deviceKey="";pairRequestToken="";getPreferences(0).edit().remove("deviceKey").apply();}
+    private void clearPairing(){deviceKey="";pairRequestToken="";nearbyPairKey=null;getPreferences(0).edit().remove("deviceKey").apply();}
     private String deviceDisplayName(){
         String manufacturer=Build.MANUFACTURER==null?"":Build.MANUFACTURER.trim();
         String model=Build.MODEL==null?"Android device":Build.MODEL.trim();
