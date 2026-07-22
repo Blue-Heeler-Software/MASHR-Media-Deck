@@ -728,12 +728,12 @@ public final class MainActivity extends Activity {
         private final Runnable activate;
         private float progress,startY;
         private boolean tracking,complete;
-        private String readyText="CHECKING NVIDIA REPLAY...",completeText="REPLAY REQUEST SENT";
+        private String readyText="CHECKING GAME REPLAY...",completeText="GAME REPLAY REQUEST SENT";
         SwipeReplayView(Runnable activate){super(MainActivity.this);this.activate=activate;setFocusable(true);fill.setColor(Color.rgb(34,197,94));handle.setColor(Color.rgb(236,253,245));label.setColor(Color.WHITE);label.setTextAlign(Paint.Align.CENTER);label.setTypeface(Typeface.DEFAULT_BOLD);label.setTextSize(getResources().getDisplayMetrics().scaledDensity*14);setReplayState(false,false,120);}
         void setReplayState(boolean available,boolean enabled,int seconds){
             track.setColor(!available?Color.rgb(69,36,36):enabled?Color.rgb(20,83,45):Color.rgb(120,53,15));
-            readyText=!available?"NVIDIA REPLAY UNAVAILABLE":enabled?"SWIPE TO SAVE "+formatTime(seconds*1000L)+"  >":"SWIPE TO ARM REPLAY  >";
-            completeText=enabled?"REPLAY SAVE REQUEST SENT":"REPLAY ARM REQUEST SENT";
+            readyText=!available?"GAME REPLAY UNAVAILABLE":enabled?"RECORD LAST "+formatTime(seconds*1000L)+" OF GAME  >":"SWIPE TO ARM GAME REPLAY  >";
+            completeText=enabled?"GAME CLIP REQUEST SENT":"GAME REPLAY ARM REQUEST SENT";
             setContentDescription(readyText);
             invalidate();
         }

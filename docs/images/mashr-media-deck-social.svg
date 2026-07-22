@@ -55,12 +55,22 @@
     <rect x="158" y="258" width="114" height="60" rx="24" fill="#A78BFA"/>
     <rect x="282" y="258" width="96" height="60" rx="24" fill="#302C48"/>
     <text x="215" y="296" text-anchor="middle" fill="#090A10" font-family="Segoe UI, Arial, sans-serif" font-size="19" font-weight="800">PAUSE</text>
-    <rect x="52" y="338" width="326" height="54" rx="24" fill="#7DD3FC"/>
-    <text x="215" y="372" text-anchor="middle" fill="#090A10" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="800">MOVE MEDIA SCREEN ›</text>
-    <rect x="52" y="406" width="326" height="54" rx="24" fill="#FBBF24"/>
-    <text x="215" y="440" text-anchor="middle" fill="#090A10" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="800">HOLD ALT + TAB</text>
-    <rect x="52" y="474" width="326" height="28" rx="14" fill="#166534"/>
-    <circle cx="70" cy="488" r="18" fill="#ECFDF5"/>
-    <text x="226" y="495" text-anchor="middle" fill="#fff" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="800">SWIPE TO SAVE REPLAY ›</text>
+    <rect x="52" y="332" width="326" height="48" rx="22" fill="#7DD3FC"/>
+    <text x="215" y="362" text-anchor="middle" fill="#090A10" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="800">MOVE MEDIA ›</text>
+    <rect x="52" y="392" width="92" height="42" rx="19" fill="#86EFAC"/>
+    <text x="98" y="419" text-anchor="middle" fill="#090A10" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="800">LIKE</text>
+    <rect x="150" y="392" width="74" height="42" rx="19" fill="#FECACA"/>
+    <text x="187" y="419" text-anchor="middle" fill="#090A10" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="800">DISLIKE</text>
+    <rect x="230" y="392" width="56" height="42" rx="19" fill="#F87171"/>
+    <text x="258" y="419" text-anchor="middle" fill="#090A10" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="800">SUB</text>
+    <rect x="292" y="392" width="86" height="42" rx="19" fill="#FBBF24"/>
+    <text x="335" y="410" text-anchor="middle" fill="#090A10" font-family="Segoe UI, Arial, sans-serif" font-size="10" font-weight="800">HOLD</text>
+    <text x="335" y="424" text-anchor="middle" fill="#090A10" font-family="Segoe UI, Arial, sans-serif" font-size="10" font-weight="800">ALT+TAB</text>
+    <text x="52" y="458" fill="#7DD3FC" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="800">YT VOL</text>
+    <line x1="108" y1="454" x2="368" y2="454" stroke="#7DD3FC" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="306" cy="454" r="8" fill="#7DD3FC"/>
+    <rect x="52" y="474" width="326" height="32" rx="16" fill="#166534"/>
+    <circle cx="70" cy="490" r="19" fill="#ECFDF5"/>
+    <text x="230" y="497" text-anchor="middle" fill="#fff" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="800">RECORD LAST 2:00 OF GAME ›</text>
   </g>
 </svg>

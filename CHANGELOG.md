@@ -4,15 +4,20 @@ All notable MASHR Media Deck changes are recorded here.
 
 ## Unreleased
 
+### Added
+
+- Added buildable Linux (`playerctl`/MPRIS) and macOS (Music/Spotify AppleScript) provider scaffolds, a shared companion protocol contract, and CI build jobs. The scaffolds intentionally open no network ports until pairing and signed-request parity exists.
+
 ### Documentation
 
 - Released MASHR Media Deck as free and open-source software under the MIT License.
-- Added a six-screen real Pixel 7 product tour covering extension-free YouTube scenes, chapter jumping, Alt+Tab, guarded replay, local pairing, and another Windows media session.
+- Re-captured the complete nine-image Pixel 7 gallery on 1.4.7, including extension-free YouTube scenes, the current action row, chapter jumping, held Alt+Tab, guarded replay, local pairing, and a locally generated VLC demo.
 - Made the extension boundary explicit: the complete core deck is extension-free; only the optional related-video grid uses the helper.
-- Updated press copy and social artwork around the extension-free core experience.
+- Updated README, press copy, security notes, screenshot captions, and social artwork around the current extension-free controls and cross-platform scaffold boundary.
 
 ### Changed
 
+- Renamed the armed replay control to **RECORD LAST 2:00 OF GAME** so its gameplay-capture purpose is obvious at a glance.
 - Reduced the outer deck gutter, card inset, and control-row spacing so the Pixel 7 layout uses more of the available screen width while retaining safe rounded edges.
 - Extended the control stack toward the Pixel navigation area, made Mute narrower, and gave both volume controls more width, height, and label emphasis.
 - Added a dedicated screenshot button that uses NVIDIA Overlay's configured shortcut when available and falls back to Windows' saved-screenshot shortcut.
