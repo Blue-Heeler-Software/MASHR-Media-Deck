@@ -6,6 +6,8 @@
 
 [![Android 8+](https://img.shields.io/badge/Android-8%2B-7DD3FC?style=flat-square&logo=android&logoColor=white)](#quick-start)
 [![Windows 10/11](https://img.shields.io/badge/Windows-10%20%2F%2011-A78BFA?style=flat-square&logo=windows11&logoColor=white)](#quick-start)
+[![Linux scaffold](https://img.shields.io/badge/Linux-provider%20scaffold-8F8EA3?style=flat-square&logo=linux&logoColor=white)](clients/linux/README.md)
+[![macOS scaffold](https://img.shields.io/badge/macOS-provider%20scaffold-8F8EA3?style=flat-square&logo=apple&logoColor=white)](clients/macos/README.md)
 [![Local only](https://img.shields.io/badge/network-local%20only-22C55E?style=flat-square)](#security-model)
 [![No cloud account](https://img.shields.io/badge/cloud-none-171923?style=flat-square)](#security-model)
 [![No browser extension](https://img.shields.io/badge/browser%20extension-not%20required-22C55E?style=flat-square)](#no-extension-needed)
@@ -28,7 +30,7 @@ The browser helper is not required for any control shown above. It exists for on
 - Tappable YouTube creator chapters as progress markers and a **SCENES** list—no extension required.
 - Extension-free YouTube **LIKE**, **DISLIKE**, and **SUB** controls through the selected browser window's Windows accessibility surface.
 - A compact **YT VOL** slider that reads and changes the selected YouTube player's own 0–100 volume without changing Windows master volume.
-- Guarded NVIDIA Instant Replay slider that shows whether the buffer is off, arms it explicitly, and saves with NVIDIA's configured hotkey.
+- Guarded NVIDIA Instant Replay slider that shows whether the buffer is off, arms it explicitly, and labels the armed action **RECORD LAST 2:00 OF GAME** (using the detected buffer length).
 - Hold-to-use Alt+Tab: keep the yellow control held and use **PREV/NEXT** as window-switcher arrows.
 - Move the selected media window to the next monitor without stealing focus.
 - Save a PC screenshot using NVIDIA Overlay's configured shortcut, with a Windows fallback.
@@ -85,6 +87,13 @@ Every screen below is a real Pixel 7 capture from the extension-free core.
       The one-time code belongs to the PC companion—there is no YouTube or cloud login.
     </td>
   </tr>
+  <tr>
+    <td colspan="2" valign="top">
+      <img src="docs/images/pixel7-replay-control.png" alt="MASHR Media Deck gamer controls with Record last 2 minutes of game replay action"><br>
+      <strong>The action says what the gamer gets.</strong><br>
+      When NVIDIA's buffer is armed, the green control reads <strong>RECORD LAST 2:00 OF GAME</strong> instead of relying on replay jargon.
+    </td>
+  </tr>
 </table>
 
 ## Designed for the couch-and-keyboard problem
@@ -98,7 +107,7 @@ MASHR Media Deck is not a general remote-desktop app. It exposes a small allowli
 | A video earns a reaction | Tap **LIKE**, **DISLIKE**, or **SUB** |
 | YouTube itself is too loud | Drag the tiny **YT VOL** slider |
 | The media window is on the wrong display | Tap **MOVE MEDIA TO NEXT SCREEN** |
-| Something worth clipping just happened | Swipe the guarded replay control |
+| Something worth clipping just happened | Swipe **RECORD LAST 2:00 OF GAME** |
 | A different PC window is needed | Hold **ALT + TAB**, then tap **PREV/NEXT** |
 
 ## Security model
@@ -191,7 +200,7 @@ MASHR Media Deck reads NVIDIA Overlay's local `ShareSettings.json` for:
 - the configured rolling-buffer duration;
 - the configured `DVRSave` and `DVRToggle` shortcuts.
 
-When replay is off, the slider is orange and says **SWIPE TO ARM REPLAY**. Once NVIDIA reports the buffer enabled, it turns green and becomes **SWIPE TO SAVE**. The remote does not expose a disarm action, so stale phone state cannot accidentally switch the buffer off.
+When replay is off, the slider is orange and says **SWIPE TO ARM GAME REPLAY**. Once NVIDIA reports the buffer enabled, it turns green and becomes **RECORD LAST 2:00 OF GAME**, with the duration taken from NVIDIA's configured rolling buffer. The remote does not expose a disarm action, so stale phone state cannot accidentally switch the buffer off.
 
 ## Restart reliability
 
@@ -213,9 +222,15 @@ Start-ScheduledTask -TaskName 'MediaDeck Companion'
 - VLC focused-window fallback
 - Most players that publish a Windows global media session
 
+## Linux and macOS companion scaffolds
+
+The complete phone-pairing companion currently targets Windows. Buildable provider scaffolds now live in [`clients/linux`](clients/linux/README.md) and [`clients/macos`](clients/macos/README.md): Linux reads MPRIS through `playerctl`, while macOS reads Apple Music or Spotify through fixed AppleScript calls.
+
+Both scaffolds emit the shared `/api/now` snapshot shape and expose a small allowlisted control CLI. They intentionally open no network ports and cannot pair with Android yet. [`clients/PROTOCOL.md`](clients/PROTOCOL.md) records the transport, HMAC, replay-protection, source-IP, and rate-limit requirements that must be implemented before either port enables LAN access.
+
 ## Project status
 
-MASHR Media Deck `1.4.6` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. It has no analytics, cloud backend, advertising, or account system.
+MASHR Media Deck `1.4.7` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. Linux and macOS are contributor scaffolds, not released companions. The project has no analytics, cloud backend, advertising, or account system.
 
 Release history is in [CHANGELOG.md](CHANGELOG.md).
 

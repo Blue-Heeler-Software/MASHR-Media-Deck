@@ -2,10 +2,10 @@
 
 ## Identity
 
-**Product:** MASHR Media Deck  
-**Category:** Local second-screen media remote for PC gamers  
-**Current release:** 1.4.0 developer preview  
-**Platforms:** Android 8+ phone; Windows 10/11 PC companion  
+**Product:** MASHR Media Deck<br>
+**Category:** Local second-screen media remote for PC gamers<br>
+**Current release:** 1.4.7 developer preview<br>
+**Platforms:** Android 8+ phone; Windows 10/11 PC companion; Linux/macOS contributor scaffolds<br>
 **Developer:** Blue Heeler Software
 
 ## Tagline
@@ -41,7 +41,7 @@ The core deck needs no browser extension. YouTube artwork, metadata, live progre
 - Tiny actual-player YouTube volume control that leaves Windows master volume unchanged.
 - No browser extension for the complete core deck.
 - Free and open-source under the MIT License.
-- Guarded arm/save flow for NVIDIA Instant Replay.
+- Guarded NVIDIA Instant Replay flow with an armed **RECORD LAST 2:00 OF GAME** action.
 - Hold-to-use Alt+Tab window switching.
 - Focus-preserving media-window monitor cycling.
 - One-tap PC screenshots through the configured NVIDIA shortcut or Windows fallback.
@@ -78,7 +78,7 @@ The core deck needs no browser extension. YouTube artwork, metadata, live progre
 
 ![Guarded replay swipe in progress](images/pixel7-replay-gesture.png)
 
-**Caption:** The high-consequence replay action exposes its activation progress instead of firing on a stray tap.
+**Caption:** The high-consequence replay action exposes its activation progress instead of firing on a stray tap, then states exactly how much gameplay will be recorded.
 
 ### Local pairing
 
@@ -96,17 +96,17 @@ The core deck needs no browser extension. YouTube artwork, metadata, live progre
 
 ![MASHR Media Deck main controls](images/pixel7-now-playing.png)
 
-**Caption:** A second Windows media session shows that the deck is not limited to YouTube.
+**Caption:** A locally generated MASHR demo clip in VLC shows that the deck is not limited to YouTube.
 
-**Alt text:** Dark Android media remote showing artwork, live progress, large purple transport buttons, blue monitor control, yellow Alt+Tab control, and orange NVIDIA replay slider.
+**Alt text:** Dark Android media remote showing VLC demo artwork, large purple transport buttons, blue monitor control, YouTube action row, yellow Alt+Tab control, and green game-replay slider.
 
 ### Replay control detail
 
 ![Guarded NVIDIA replay control](images/pixel7-replay-control.png)
 
-**Caption:** Replay state is explicit: orange arms the rolling buffer; green saves the configured history.
+**Caption:** Replay state is explicit: orange arms the rolling buffer; green reads **RECORD LAST 2:00 OF GAME** using NVIDIA's configured history length.
 
-**Alt text:** Lower part of MASHR Media Deck with monitor switching, Alt+Tab, and swipe-to-arm replay controls.
+**Alt text:** Lower part of MASHR Media Deck with screenshot, monitor switching, YouTube reactions, Alt+Tab, player volume, and Record last 2 minutes of game controls.
 
 ## Brand palette
 
@@ -148,6 +148,7 @@ Use:
 - “no cloud backend”
 - “tested on Pixel 7 and Windows 11”
 - “developer preview”
+- “Linux and macOS contributor scaffolds”
 
 Avoid:
 
@@ -155,4 +156,5 @@ Avoid:
 - claiming support for every Windows media player;
 - describing the optional browser helper as required for chapters;
 - implying that playback, artwork, progress, scenes, or controls require a browser extension;
+- presenting the Linux or macOS provider scaffolds as phone-pairing companions;
 - presenting the debug APK as a store-signed production build.

@@ -30,6 +30,10 @@ The LAN transport is HTTP rather than TLS. HMAC prevents an observer from forgin
 
 For the intended home-LAN setup, pair on a WPA2/WPA3 private network, do not pair on guest/public Wi-Fi, do not create router port forwards, and keep any Windows Firewall rule limited to the Private profile. A later certificate-pinning/QR-pairing iteration would be needed for confidentiality against an already-compromised LAN.
 
+## Linux and macOS scaffold boundary
+
+The Linux and macOS provider scaffolds under `clients/` start no TCP or UDP listener and cannot pair with the Android app. They are deliberately loopback/non-network building blocks until the HMAC pairing, nonce replay rejection, source-IP policy, request limits, and rate limits in [`clients/PROTOCOL.md`](clients/PROTOCOL.md) are implemented and tested. Do not expose either provider by wrapping it in an unauthenticated LAN service.
+
 ## If a phone or key may be compromised
 
 Right-click the MASHR Media Deck tray shield and select **Reset phone pairing**. This invalidates the old phone key immediately. Pair the intended phone again with the new one-time code.

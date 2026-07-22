@@ -1,6 +1,6 @@
 # MASHR Media Deck screenshots
 
-These are real Pixel 7 captures. YouTube artwork, live progress, chapter markers, reactions, subscription, the scene picker, playback controls, monitor switching, Alt+Tab, replay, and local pairing all work without a browser extension.
+These are refreshed real Pixel 7 captures from MASHR Media Deck 1.4.7. YouTube artwork, live progress, chapter markers, reactions, subscription, the scene picker, playback controls, monitor switching, Alt+Tab, replay, and local pairing all work without a browser extension.
 
 ## Extension-free YouTube deck
 
@@ -30,13 +30,13 @@ While the red control is held, **PREV/NEXT** become left/right window-switcher a
 
 ![NVIDIA replay gesture showing swipe progress](images/pixel7-replay-gesture.png)
 
-The slider shows progress before crossing its activation threshold, making an accidental replay action much less likely.
+The slider shows progress before crossing its activation threshold, making an accidental replay action much less likely. Once armed, the destination is explicit: **RECORD LAST 2:00 OF GAME**.
 
 ## Another Windows media session
 
 ![Complete MASHR Media Deck interface with another media session](images/pixel7-now-playing.png)
 
-The same portrait deck handles compatible Windows media sessions with artwork, metadata, a live timeline, and large controls.
+This capture uses a locally generated MASHR demo clip in VLC. The same portrait deck handles compatible Windows media sessions with artwork, metadata, and large controls.
 
 ## Dedicated screenshot action
 
@@ -54,7 +54,7 @@ Pairing is between the phone and PC companion. The app does not ask for a YouTub
 
 ![MASHR Media Deck gamer controls](images/pixel7-replay-control.png)
 
-Blue moves the media window between screens, yellow controls Alt+Tab, and amber/green guards Instant Replay.
+Blue moves the media window between screens, yellow controls Alt+Tab, and green **RECORD LAST 2:00 OF GAME** makes the armed Instant Replay result unmistakable.
 
 ## Social card
 
