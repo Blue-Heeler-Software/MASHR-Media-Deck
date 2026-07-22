@@ -198,10 +198,11 @@ app.MapPost("/api/pair/nearby", (HttpContext context) =>
     var deviceId = context.Request.Headers["X-MediaDeck-Device"].ToString();
     var deviceName = context.Request.Headers["X-MediaDeck-Device-Name"].ToString();
     var requestToken = context.Request.Headers["X-MediaDeck-Pairing-Request"].ToString();
-    var result = security.TryNearbyPair(deviceId, deviceName, requestToken, context.Connection.RemoteIpAddress, out var key, out var expiresInSeconds);
+    var pairingPublicKey = context.Request.Headers["X-MediaDeck-Pairing-Public-Key"].ToString();
+    var result = security.TryNearbyPair(deviceId, deviceName, requestToken, pairingPublicKey, context.Connection.RemoteIpAddress, out var wrappedKey, out var expiresInSeconds);
     return result switch
     {
-        NearbyPairingStatus.Paired => Results.Json(new { status = "paired", key, deviceId, algorithm = "HMAC-SHA256", clockWindowSeconds = 30 }),
+        NearbyPairingStatus.Paired => Results.Json(new { status = "paired", wrappedKey, deviceId, algorithm = "RSA-OAEP-SHA256+HMAC-SHA256", clockWindowSeconds = 30 }),
         NearbyPairingStatus.Waiting => Results.Json(new { status = "waiting", expiresInSeconds }, statusCode: StatusCodes.Status202Accepted),
         NearbyPairingStatus.Capacity => Results.Json(new { error = "The PC has too many pending or paired controllers. Revoke one in the dashboard and try again." }, statusCode: StatusCodes.Status429TooManyRequests),
         _ => Results.Json(new { error = "Invalid nearby pairing request." }, statusCode: StatusCodes.Status400BadRequest)
@@ -576,17 +577,18 @@ sealed class SecurityState
         }
     }
 
-    public NearbyPairingStatus TryNearbyPair(string requestedId, string requestedName, string requestToken, IPAddress? remoteAddress, out string encodedKey, out int expiresInSeconds)
+    public NearbyPairingStatus TryNearbyPair(string requestedId, string requestedName, string requestToken, string pairingPublicKey, IPAddress? remoteAddress, out string wrappedKey, out int expiresInSeconds)
     {
-        encodedKey = "";
+        wrappedKey = "";
         expiresInSeconds = 0;
         var deviceId = NormalizeDeviceId(requestedId);
         var address = NormalizeAddress(remoteAddress);
         requestToken = requestToken.Trim();
         if (deviceId.Length == 0 || address.Length == 0 || requestToken.Length is < 32 or > 64 ||
             requestToken.Any(ch => !char.IsAsciiLetterOrDigit(ch) && ch is not '-' and not '_')) return NearbyPairingStatus.Invalid;
+        if (!TryNormalizePairingPublicKey(pairingPublicKey, out var publicKey)) return NearbyPairingStatus.Invalid;
 
-        var requestId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{deviceId}\n{requestToken}"))).ToLowerInvariant();
+        var requestId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{deviceId}\n{requestToken}\n{Convert.ToBase64String(publicKey)}"))).ToLowerInvariant();
         lock (gate)
         {
             ExpireNearbyLocked();
@@ -605,7 +607,7 @@ sealed class SecurityState
                 }
                 usedNonces.Clear();
                 SaveDevicesLocked();
-                encodedKey = Convert.ToBase64String(grant.Key);
+                wrappedKey = Convert.ToBase64String(grant.WrappedKey);
                 return NearbyPairingStatus.Paired;
             }
 
@@ -616,6 +618,7 @@ sealed class SecurityState
                 deviceId,
                 NormalizeDeviceName(requestedName),
                 address,
+                publicKey,
                 existing?.RequestedAtUtc ?? now,
                 now.AddSeconds(NearbyRequestSeconds));
             expiresInSeconds = NearbyRequestSeconds;
@@ -631,7 +634,16 @@ sealed class SecurityState
             if (!nearbyRequests.TryGetValue(requestId, out var request)) return false;
             if (!devices.ContainsKey(request.DeviceId) && devices.Count >= MaximumDevices) return false;
             var expires = DateTimeOffset.UtcNow.AddSeconds(NearbyGrantSeconds);
-            nearbyGrants[requestId] = new NearbyPairingGrant(requestId, request.DeviceId, request.Name, request.Address, RandomNumberGenerator.GetBytes(32), expires);
+            var key = RandomNumberGenerator.GetBytes(32);
+            byte[] encrypted;
+            try
+            {
+                using var rsa = RSA.Create();
+                rsa.ImportSubjectPublicKeyInfo(request.PairingPublicKey, out _);
+                encrypted = rsa.Encrypt(key, RSAEncryptionPadding.OaepSHA256);
+            }
+            catch (CryptographicException) { return false; }
+            nearbyGrants[requestId] = new NearbyPairingGrant(requestId, request.DeviceId, request.Name, request.Address, key, encrypted, expires);
             nearbyRequests[requestId] = request with { ExpiresAtUtc = expires };
             return true;
         }
@@ -818,6 +830,22 @@ sealed class SecurityState
         return value.Length <= 48 ? value : value[..48];
     }
 
+    private static bool TryNormalizePairingPublicKey(string encoded, out byte[] publicKey)
+    {
+        publicKey = [];
+        if (encoded.Length is < 300 or > 800) return false;
+        try
+        {
+            var candidate = Convert.FromBase64String(encoded);
+            using var rsa = RSA.Create();
+            rsa.ImportSubjectPublicKeyInfo(candidate, out var consumed);
+            if (consumed != candidate.Length || rsa.KeySize is < 2048 or > 4096) return false;
+            publicKey = rsa.ExportSubjectPublicKeyInfo();
+            return true;
+        }
+        catch (Exception error) when (error is FormatException or CryptographicException) { return false; }
+    }
+
     private static string NormalizeAddress(IPAddress? address)
     {
         if (address?.IsIPv4MappedToIPv6 == true) address = address.MapToIPv4();
@@ -849,8 +877,8 @@ sealed class SecurityState
 
     private sealed record PairedDevice(string Id, string Name, byte[] Key, DateTimeOffset PairedAtUtc, DateTimeOffset LastSeenUtc, string LastAddress);
     private sealed record StoredDevice(string Id, string Name, string Key, DateTimeOffset PairedAtUtc, DateTimeOffset LastSeenUtc, string? LastAddress);
-    private sealed record NearbyPairingRequest(string RequestId, string DeviceId, string Name, string Address, DateTimeOffset RequestedAtUtc, DateTimeOffset ExpiresAtUtc);
-    private sealed record NearbyPairingGrant(string RequestId, string DeviceId, string Name, string Address, byte[] Key, DateTimeOffset ExpiresAtUtc);
+    private sealed record NearbyPairingRequest(string RequestId, string DeviceId, string Name, string Address, byte[] PairingPublicKey, DateTimeOffset RequestedAtUtc, DateTimeOffset ExpiresAtUtc);
+    private sealed record NearbyPairingGrant(string RequestId, string DeviceId, string Name, string Address, byte[] Key, byte[] WrappedKey, DateTimeOffset ExpiresAtUtc);
 }
 
 sealed record PairedDeviceView(string Id, string Name, string Address, DateTimeOffset PairedAtUtc, DateTimeOffset LastSeenUtc, bool Online, bool Legacy);

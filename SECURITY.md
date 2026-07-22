@@ -4,7 +4,7 @@
 
 MASHR Media Deck control and metadata requests require an HMAC-SHA256 signature made with a per-device random 256-bit key stored in the private app data of that phone and the current Windows user. The signature covers the HTTP method, exact path and query, timestamp, and random nonce. The companion selects the paired device key by a random persistent device ID, rejects stale timestamps, and rejects already-seen nonces.
 
-An unpaired phone may submit a bounded nearby request from an allowed LAN address. That request contains a persistent device ID plus a fresh random claim token, expires after 45 seconds, and grants no control authority by itself. A local user must click **PAIR THIS DEVICE** beside the expected name and source IP. The resulting grant expires after 30 seconds, can be claimed once, and is bound to the exact request token and source IP. The six-digit pairing code remains available only during an explicit two-minute fallback window. Both paths issue a different key per phone, are rate-limited, and store at most 16 controllers.
+An unpaired phone may submit a bounded nearby request from an allowed LAN address. That request contains a persistent device ID, fresh random claim token, and ephemeral 2048-bit RSA public key; it expires after 45 seconds and grants no control authority by itself. A local user must click **PAIR THIS DEVICE** beside the expected name and source IP. The resulting grant expires after 30 seconds, can be claimed once, and is bound to the exact request token, public key, and source IP. The 256-bit HMAC key is encrypted with RSA-OAEP-SHA256 to that phone before it crosses the LAN, and only the ephemeral Android private key can decrypt it. The six-digit pairing code remains available only during an explicit two-minute fallback window.
 
 LAN access is off by default. The companion then binds only to `127.0.0.1` and starts no UDP discovery listener. Enabling LAN access does not require changing the Windows network profile.
 
@@ -26,7 +26,7 @@ The monitor-switch command accepts no process ID, window handle, coordinates, or
 
 ## Remaining limitation
 
-The LAN transport is HTTP rather than TLS. HMAC prevents an observer from forging or replaying control requests after pairing, but it does not hide media titles, artwork, or response contents. An attacker who can actively sniff the exact one-time pairing exchange could also capture the returned device key.
+The LAN transport is HTTP rather than TLS. HMAC prevents an observer from forging or replaying control requests after pairing, and the default nearby flow encrypts the device key to the phone's ephemeral RSA key, but media titles, artwork, and ordinary responses are not confidential. The initial public-key request has no previously shared trust anchor, so an attacker capable of actively intercepting and modifying that first exchange could substitute a key and cause denial or attempt a man-in-the-middle attack. Fully authenticating first contact against that threat requires an out-of-band QR/fingerprint or code comparison; an ordinary WLAN client that cannot intercept another device's traffic gains no key merely by reaching the listener.
 
 For the intended home-LAN setup, pair on a WPA2/WPA3 private network, do not pair on guest/public Wi-Fi, do not create router port forwards, and keep any Windows Firewall rule limited to the Private profile. A later certificate-pinning/QR-pairing iteration would be needed for confidentiality against an already-compromised LAN.
 

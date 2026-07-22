@@ -119,7 +119,7 @@ The phone needs no Google login, YouTube account access, Android media permissio
 
 - Every paired controller receives its own random 256-bit key, and every media/control request is authenticated with HMAC-SHA256.
 - Requests have a 30-second clock window and one-use nonce.
-- Nearby requests expire after 45 seconds. Approval creates a 30-second, one-use claim bound to that request's random token and source IP; adding a phone does not disconnect existing controllers.
+- Nearby requests expire after 45 seconds. Approval creates a 30-second, one-use claim bound to that request's random token, ephemeral RSA public key, and source IP. The HMAC key crosses the LAN only as an RSA-OAEP-SHA256 envelope that the phone's private key can open.
 - The PC dashboard shows every paired controller, its last address and recent activity, and can revoke one controller independently.
 - Strict `PairedPhone` LAN mode accepts one phone IP. Multi-device `SameSubnet` mode stays bound to one PC interface and one directly connected subnet; unknown devices may ask to pair, but receive no key or control authority without an explicit dashboard click.
 - Control commands are fixed and allowlisted—there is no shell, arbitrary URL, file upload, process ID, window handle, or coordinate endpoint.
