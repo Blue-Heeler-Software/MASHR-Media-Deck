@@ -50,9 +50,13 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
+import java.net.InterfaceAddress;
+import java.net.NetworkInterface;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -73,7 +77,7 @@ public final class MainActivity extends Activity {
     private ChapterSeekBar timeline;
     private SeekBar youtubeVolume;
     private SwipeReplayView replay;
-    private String base="",deviceKey="",deviceId="",deviceName="",lastTrack="";
+    private String base="",deviceKey="",deviceId="",deviceName="",lastTrack="",pairRequestToken="";
     private boolean running,destroyed,requestPending,userSeeking,youtubeVolumeSeeking,altHeld,youtubeAvailable,artworkPending,artworkLoaded,replayAvailable,replayEnabled;
     private long durationMs,positionMs,lastArtworkAttemptMs;
     private int replaySeconds=120,skipSeconds=10;
@@ -330,7 +334,7 @@ public final class MainActivity extends Activity {
     private void refresh(boolean showConnecting){
         if(destroyed||io.isShutdown()||requestPending)return;
         ui.removeCallbacks(poll);
-        if(deviceKey.isEmpty()){showPairingNeeded();return;}
+        if(deviceKey.isEmpty()){requestNearbyPairing();return;}
         requestPending=true;
         if(showConnecting){status.setText(base.isEmpty()?"FINDING PC...":"CONNECTING TO PC...");status.setTextColor(MUTED);}
         io.execute(()->{
@@ -398,7 +402,7 @@ public final class MainActivity extends Activity {
         schedule();
     }
 
-    private void showPairingNeeded(){requestPending=false;status.setText("PAIRING REQUIRED  /  TAP PC SETTINGS");status.setTextColor(Color.rgb(251,191,36));schedule();}
+    private void showPairingNeeded(){requestPending=false;status.setText("ASKING PC FOR ONE-CLICK PAIRING...");status.setTextColor(Color.rgb(251,191,36));schedule();}
     private void showError(){requestPending=false;status.setText("PC OFFLINE  /  TAP PC SETTINGS");status.setTextColor(Color.rgb(248,113,113));schedule();}
     private void schedule(){if(running){ui.removeCallbacks(poll);ui.postDelayed(poll,2500);}}
 
@@ -636,16 +640,16 @@ public final class MainActivity extends Activity {
         form.addView(address,new LinearLayout.LayoutParams(-1,dp(56)));
         EditText code=new EditText(this);
         code.setSingleLine();
-        code.setHint(deviceKey.isEmpty()?"6-digit PC pairing code":"Pairing code (when adding again)");
+        code.setHint("Fallback 6-digit pairing code (optional)");
         code.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
         code.setTextSize(17);
         form.addView(code,new LinearLayout.LayoutParams(-1,dp(56)));
         new AlertDialog.Builder(this)
             .setTitle("PC SETTINGS")
-            .setMessage("On the PC, open MASHR Media Deck and press Start Pairing. The two-minute code adds this phone without disconnecting your other controllers.")
+            .setMessage("Normally, just open this app: the phone appears under Nearby Controllers on the PC. Confirm its name and IP, then click Pair This Device once. Use the code only if nearby discovery is unavailable.")
             .setView(form)
             .setNegativeButton("CANCEL",null)
-            .setPositiveButton(deviceKey.isEmpty()?"PAIR":"CONNECT",(dialog,which)->{
+            .setPositiveButton("CONNECT",(dialog,which)->{
                 int requestedSkip;
                 try{requestedSkip=Integer.parseInt(skip.getText().toString().trim());}
                 catch(Exception error){Toast.makeText(this,"Skip must be from 1 to 120 seconds",Toast.LENGTH_SHORT).show();return;}
@@ -656,9 +660,69 @@ public final class MainActivity extends Activity {
                 String pairingCode=code.getText().toString().trim();
                 if(!value.isEmpty()){base=value;getPreferences(0).edit().putString("pc",base).apply();}
                 if(pairingCode.isEmpty()&&!deviceKey.isEmpty()){lastTrack="";refresh(true);return;}
-                if(pairingCode.length()!=6){Toast.makeText(this,"Enter the 6-digit code from the PC tray",Toast.LENGTH_SHORT).show();return;}
+                if(pairingCode.isEmpty()){pairRequestToken="";Toast.makeText(this,"Look for this phone in the PC dashboard",Toast.LENGTH_SHORT).show();refresh(true);return;}
+                if(pairingCode.length()!=6){Toast.makeText(this,"The fallback code must be 6 digits",Toast.LENGTH_SHORT).show();return;}
                 pairWithPc(pairingCode);
             }).show();
+    }
+
+    private void requestNearbyPairing(){
+        if(destroyed||io.isShutdown()||requestPending)return;
+        requestPending=true;
+        if(pairRequestToken.isEmpty())pairRequestToken=UUID.randomUUID().toString().replace("-","");
+        status.setText(base.isEmpty()?"FINDING PC FOR ONE-CLICK PAIRING...":"ASKING PC FOR ONE-CLICK PAIRING...");
+        status.setTextColor(Color.rgb(251,191,36));
+        io.execute(()->{
+            try{
+                if(base.isEmpty()){
+                    String discovered=discoverPc();
+                    if(discovered==null)throw new IOException("PC not found");
+                    saveDiscoveredPc(discovered);
+                }
+                JSONObject reply;
+                try{reply=sendNearbyPairRequest();}
+                catch(Exception first){
+                    String discovered=discoverPc();
+                    if(discovered==null)throw first;
+                    saveDiscoveredPc(discovered);
+                    reply=sendNearbyPairRequest();
+                }
+                Log.i("MASHRMediaDeck","Nearby pairing reply from "+base+": "+reply.optString("status","unknown"));
+                String received=reply.optString("key","");
+                if(!received.isEmpty()){
+                    if(Base64.decode(received,Base64.DEFAULT).length!=32)throw new IOException("Invalid pairing key");
+                    String assignedId=reply.optString("deviceId",deviceId);
+                    if(!assignedId.isEmpty())deviceId=assignedId;
+                    deviceKey=received;
+                    pairRequestToken="";
+                    getPreferences(0).edit().putString("deviceKey",deviceKey).putString("deviceId",deviceId).apply();
+                    requestPending=false;
+                    ui.post(()->{if(destroyed)return;Toast.makeText(this,deviceName+" paired securely",Toast.LENGTH_SHORT).show();lastTrack="";refresh(true);});
+                    return;
+                }
+                requestPending=false;
+                ui.post(()->{if(destroyed)return;status.setText("WAITING FOR PC  /  CLICK PAIR THIS DEVICE");status.setTextColor(Color.rgb(74,222,128));schedule();});
+            }catch(Exception error){
+                Log.w("MASHRMediaDeck","Nearby pairing request failed for "+base,error);
+                requestPending=false;
+                ui.post(()->{if(destroyed)return;status.setText("PC NOT FOUND  /  RETRYING ONE-CLICK PAIRING");status.setTextColor(Color.rgb(248,113,113));schedule();});
+            }
+        });
+    }
+
+    private JSONObject sendNearbyPairRequest()throws Exception{
+        HttpURLConnection connection=openConnection("/api/pair/nearby","POST",false);
+        connection.setRequestProperty("X-MediaDeck-Device",deviceId);
+        connection.setRequestProperty("X-MediaDeck-Device-Name",deviceName);
+        connection.setRequestProperty("X-MediaDeck-Pairing-Request",pairRequestToken);
+        connection.setDoOutput(true);
+        try{connection.getOutputStream().close();return new JSONObject(readResponse(connection));}
+        finally{connection.disconnect();}
+    }
+
+    private void saveDiscoveredPc(String discovered){
+        base=discovered;
+        getPreferences(0).edit().putString("pc",base).apply();
     }
 
     private void pairWithPc(String code){
@@ -688,6 +752,7 @@ public final class MainActivity extends Activity {
                 String assignedId=paired.optString("deviceId",deviceId);
                 if(!assignedId.isEmpty())deviceId=assignedId;
                 deviceKey=received;
+                pairRequestToken="";
                 getPreferences(0).edit().putString("deviceKey",deviceKey).putString("deviceId",deviceId).apply();
                 requestPending=false;
                 ui.post(()->{Toast.makeText(this,deviceName+" paired securely",Toast.LENGTH_SHORT).show();lastTrack="";refresh(true);});
@@ -750,20 +815,32 @@ public final class MainActivity extends Activity {
     }
 
     private String discoverPc(){
-        try(DatagramSocket socket=new DatagramSocket()){
+        try(DatagramSocket socket=new DatagramSocket(43822)){
             socket.setBroadcast(true);
             socket.setSoTimeout(1400);
             byte[] query="MEDIADECK_DISCOVER".getBytes(StandardCharsets.UTF_8);
-            socket.send(new DatagramPacket(query,query.length,InetAddress.getByName("255.255.255.255"),43822));
-            byte[] buffer=new byte[64];
-            DatagramPacket reply=new DatagramPacket(buffer,buffer.length);
-            socket.receive(reply);
-            String message=new String(reply.getData(),0,reply.getLength(),StandardCharsets.UTF_8);
-            return message.equals("MEDIADECK:43821")?reply.getAddress().getHostAddress():null;
-        }catch(Exception ignored){return null;}
+            LinkedHashSet<InetAddress> targets=new LinkedHashSet<>();
+            targets.add(InetAddress.getByName("255.255.255.255"));
+            for(NetworkInterface network:Collections.list(NetworkInterface.getNetworkInterfaces())){
+                if(!network.isUp()||network.isLoopback())continue;
+                for(InterfaceAddress address:network.getInterfaceAddresses())if(address.getBroadcast()!=null)targets.add(address.getBroadcast());
+            }
+            Log.i("MASHRMediaDeck","Discovery targets: "+targets);
+            for(InetAddress target:targets)socket.send(new DatagramPacket(query,query.length,target,43822));
+            long deadline=SystemClock.elapsedRealtime()+1400;
+            while(SystemClock.elapsedRealtime()<deadline){
+                socket.setSoTimeout((int)Math.max(1,deadline-SystemClock.elapsedRealtime()));
+                byte[] buffer=new byte[64];
+                DatagramPacket reply=new DatagramPacket(buffer,buffer.length);
+                socket.receive(reply);
+                String message=new String(reply.getData(),0,reply.getLength(),StandardCharsets.UTF_8);
+                if(message.equals("MEDIADECK:43821"))return reply.getAddress().getHostAddress();
+            }
+            return null;
+        }catch(Exception error){Log.w("MASHRMediaDeck","PC discovery failed",error);return null;}
     }
 
-    private void clearPairing(){deviceKey="";getPreferences(0).edit().remove("deviceKey").apply();}
+    private void clearPairing(){deviceKey="";pairRequestToken="";getPreferences(0).edit().remove("deviceKey").apply();}
     private String deviceDisplayName(){
         String manufacturer=Build.MANUFACTURER==null?"":Build.MANUFACTURER.trim();
         String model=Build.MODEL==null?"Android device":Build.MODEL.trim();

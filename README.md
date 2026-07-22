@@ -87,7 +87,7 @@ Every screen here is a real Pixel 7 capture, not a drawn app mock-up. The lead s
     <td width="50%" valign="top">
       <img src="docs/images/pixel7-local-pairing-v148.png" alt="Local one-time pairing screen with no YouTube login"><br>
       <strong>Pair locally, not with a media account.</strong><br>
-      The one-time code belongs to the PC companion—there is no YouTube or cloud login.
+      Open the app and it appears in the PC dashboard. One click pairs that exact phone and IP; the local code remains only as a fallback.
     </td>
   </tr>
   <tr>
@@ -115,13 +115,13 @@ MASHR Media Deck is not a general remote-desktop app. It exposes a small allowli
 
 ## Security model
 
-The phone needs no Google login, YouTube account access, Android media permission, or cloud account. Each controller pairs locally with the PC companion during an explicit two-minute, six-digit pairing window.
+The phone needs no Google login, YouTube account access, Android media permission, or cloud account. An unpaired phone announces a short-lived request on the local network; the PC grants it only when you click **PAIR THIS DEVICE** beside the expected device name and IP. The two-minute, six-digit flow remains as a recovery fallback.
 
 - Every paired controller receives its own random 256-bit key, and every media/control request is authenticated with HMAC-SHA256.
 - Requests have a 30-second clock window and one-use nonce.
-- Pairing mode closes automatically after two minutes; adding a phone does not disconnect existing controllers.
+- Nearby requests expire after 45 seconds. Approval creates a 30-second, one-use claim bound to that request's random token and source IP; adding a phone does not disconnect existing controllers.
 - The PC dashboard shows every paired controller, its last address and recent activity, and can revoke one controller independently.
-- Strict `PairedPhone` LAN mode accepts one phone IP. Multi-device `SameSubnet` mode stays bound to one PC interface and one directly connected subnet, with pairing closed except during an explicit window.
+- Strict `PairedPhone` LAN mode accepts one phone IP. Multi-device `SameSubnet` mode stays bound to one PC interface and one directly connected subnet; unknown devices may ask to pair, but receive no key or control authority without an explicit dashboard click.
 - Control commands are fixed and allowlisted—there is no shell, arbitrary URL, file upload, process ID, window handle, or coordinate endpoint.
 - YouTube actions target only named accessibility controls in the selected YouTube browser window; the phone cannot send arbitrary clicks or keys.
 - YouTube volume accepts only a 0–100 level; the companion derives the exact verified Volume slider and browser render host instead of accepting caller-provided coordinates or key codes.
@@ -167,14 +167,14 @@ For WPS-style pairing of several controllers without editing the firewall for ea
 companion\Configure-LanAccess.cmd SameSubnet PHONE_IP PC_IP NETWORK_CIDR
 ```
 
-Both modes keep the existing Windows private/public network profile unchanged, disable stale broad rules, and bind the companion to one chosen PC interface. `PairedPhone` scopes the firewall to one IP. `SameSubnet` lets devices on that directly connected subnet reach the HTTP listener, but pairing accepts a code only during the dashboard's two-minute mode and controls still require a device-specific signed key.
+Both modes keep the existing Windows private/public network profile unchanged, disable stale broad rules, and bind the companion to one chosen PC interface. `PairedPhone` scopes the firewall to one IP. `SameSubnet` lets devices on that directly connected subnet reach the bounded HTTP listener and submit expiring nearby requests, but only a local dashboard click grants one exact request; controls still require a device-specific signed key.
 
 ### 3. Pair the phone
 
 1. Start `companion/bin/Debug/net10.0-windows10.0.19041.0/MediaDeck.Companion.exe`; its dashboard opens visibly.
-2. Click **START PAIRING**. The six-digit code remains valid for two minutes.
-3. On each phone, tap **PC SETTINGS**, enter that code, and tap **PAIR**. Pairing another phone does not revoke the first.
-4. Leave the PC address blank to use local discovery, or enter it directly.
+2. Open MASHR Media Deck on an unpaired phone. It discovers the PC and appears under **NEARBY CONTROLLERS**.
+3. Confirm the phone name and IP, then click **PAIR THIS DEVICE** once. The phone collects its unique key automatically.
+4. If discovery is unavailable, click **START CODE MODE** and enter the two-minute fallback code under **PC SETTINGS** on the phone.
 5. Use **REVOKE SELECTED** in the dashboard if one controller should lose access.
 
 The stable executable, Android package, scheduled-task name, discovery token, HMAC headers, and pairing-storage path retain their original `MediaDeck` identifiers so existing installs upgrade without losing pairing or restart behavior.

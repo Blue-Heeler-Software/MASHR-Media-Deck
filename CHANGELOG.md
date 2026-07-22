@@ -8,6 +8,7 @@ All notable MASHR Media Deck changes are recorded here.
 
 - Added a visible Windows companion dashboard with a large timed pairing code, network-gate status, paired-controller roster, online/last-seen state, and individual revocation.
 - Added two-minute additive pairing mode for up to 16 Android controllers, with a distinct 256-bit HMAC key and persistent device identity for every phone.
+- Added default one-click nearby pairing: unpaired phones announce an expiring request, the dashboard approves the selected name/IP once, and only that phone can collect its one-use token/IP-bound key. The numeric code remains as fallback.
 - Added buildable Linux (`playerctl`/MPRIS) and macOS (Music/Spotify AppleScript) provider scaffolds, a shared companion protocol contract, and CI build jobs. The scaffolds intentionally open no network ports until pairing and signed-request parity exists.
 
 ### Documentation
@@ -21,6 +22,7 @@ All notable MASHR Media Deck changes are recorded here.
 ### Changed
 
 - Existing single-phone installs migrate their key into the new roster without forcing the Pixel to pair again; future Android requests identify the controller and update its dashboard activity state.
+- Discovery now combines directed interface broadcasts with an outbound same-port companion beacon, so first-run phones can find a tightly firewalled PC without widening the firewall's exact local-address scope.
 - Documented `SameSubnet` as the explicit firewall mode for WPS-style multi-device pairing while retaining strict one-IP `PairedPhone` mode.
 - Split Back/Ahead into a dark configurable skip action and a blue adjacent-annotation action that appears only when a scene target exists; removed the duration from the control label and icon.
 - Added a 1–120 second default skip setting to the phone's PC Settings screen and a bounded, authenticated companion endpoint for exact signed skips.
