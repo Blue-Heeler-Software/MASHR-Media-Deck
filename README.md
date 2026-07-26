@@ -26,7 +26,7 @@ The browser helper is not required for any control shown above. It exists for on
 ## What it does
 
 - Large play/pause, previous/next, volume, mute, shuffle, repeat, stop, and configurable Back/Ahead controls.
-- Split Back/Ahead controls: tap the blue **SCENE** edge to jump between annotations, or use the dark body for the default skip set in **PC SETTINGS**.
+- Split Back/Ahead controls: on a signed-in YouTube watch page, the blue forward edge becomes **JUMP** and asks YouTube Premium to use its embedded-segment seek marker; otherwise blue **SCENE** edges use creator annotations. The dark body retains the default skip from **PC SETTINGS**.
 - Live artwork, title, artist, elapsed time, remaining time, and continuously updating progress.
 - Tappable YouTube creator chapters as progress markers and a **SCENES** list—no extension required.
 - Extension-free YouTube **LIKE**, **DISLIKE**, and **SUB** controls through the selected browser window's Windows accessibility surface.
@@ -183,7 +183,7 @@ The stable executable, Android package, scheduled-task name, discovery token, HM
 
 **No extension is used for this.**
 
-For Brave, Chrome, and Edge, the companion reads the address bar of the unambiguous selected media window through Windows UI Automation. When it is an exact YouTube watch URL, creator-published description timestamps become progress markers. Tap **SCENES** between elapsed and remaining time to open the full chapter list, or use the blue edge of **BACK/AHEAD** to jump directly to the adjacent annotation. When there is no annotation in that direction, the blue edge disappears and the dark control uses the default skip duration from **PC SETTINGS**. The deck deliberately leaves that duration off the button label so the scene mechanic stays visually obvious. The same extension-free accessibility surface activates only the visible, named Like, Dislike, Subscribe, or Volume control; Subscribe never doubles as an unsubscribe action. **YT VOL** changes the webpage player's own value while leaving Windows master volume and the physical cursor alone.
+For Brave, Chrome, and Edge, the companion reads the address bar of the unambiguous selected media window through Windows UI Automation. When it is an exact YouTube watch URL, creator-published description timestamps become progress markers. Tap **SCENES** between elapsed and remaining time to open the full chapter list. On that verified watch page, the blue forward edge becomes **JUMP** and invokes YouTube Premium's own frequently-skipped embedded-segment marker through the signed-in player; MASHR does not confuse it with YouTube's ordinary served-ad skip button or invent a sponsor timestamp from the public page. If YouTube exposes no marker for that account/video, the phone applies the configured normal skip. The same extension-free accessibility surface activates only visible, named Like, Dislike, Subscribe, Jump Ahead, or Volume controls.
 
 ## Optional extra: related-video grid
 

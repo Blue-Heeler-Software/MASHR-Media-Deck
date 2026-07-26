@@ -6,6 +6,7 @@ All notable MASHR Media Deck changes are recorded here.
 
 ### Added
 
+- Added an extension-free **JUMP** edge for exact YouTube watch pages. It invokes YouTube Premium's own embedded-segment/frequently-skipped marker and falls back to the configured skip when the account or video exposes no marker.
 - Added a visible Windows companion dashboard with a large timed pairing code, network-gate status, paired-controller roster, online/last-seen state, and individual revocation.
 - Added two-minute additive pairing mode for up to 16 Android controllers, with a distinct 256-bit HMAC key and persistent device identity for every phone.
 - Added default one-click nearby pairing: unpaired phones announce an expiring request, the dashboard approves the selected name/IP once, and only that phone can collect its one-use token/IP-bound key. The numeric code remains as fallback.

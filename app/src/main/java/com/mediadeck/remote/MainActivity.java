@@ -85,7 +85,7 @@ public final class MainActivity extends Activity {
     private SwipeReplayView replay;
     private String base="",deviceKey="",deviceId="",deviceName="",lastTrack="",pairRequestToken="";
     private KeyPair nearbyPairKey;
-    private boolean running,destroyed,requestPending,userSeeking,youtubeVolumeSeeking,altHeld,youtubeAvailable,artworkPending,artworkLoaded,replayAvailable,replayEnabled;
+    private boolean running,destroyed,requestPending,userSeeking,youtubeVolumeSeeking,altHeld,youtubeAvailable,youtubeJumpAheadEligible,artworkPending,artworkLoaded,replayAvailable,replayEnabled;
     private long durationMs,positionMs,lastArtworkAttemptMs;
     private int replaySeconds=120,skipSeconds=10;
     private final ArrayList<MediaChapter> chapters=new ArrayList<>();
@@ -371,6 +371,7 @@ public final class MainActivity extends Activity {
         String newTitle=data.optString("title","Nothing playing"),newArtist=data.optString("artist","Start media on your PC");
         boolean playing=data.optBoolean("playing");
         youtubeAvailable=data.optBoolean("youtubeAvailable",false);
+        youtubeJumpAheadEligible=data.optBoolean("youtubeJumpAheadEligible",false);
         String sourceId=data.optString("source","PC MEDIA");
         String sourceLabel=friendlySource(sourceId);
         source.setText(sourceLabel+(youtubeAvailable?"  /  SWIPE UP FOR PICKS":""));
@@ -553,13 +554,23 @@ public final class MainActivity extends Activity {
 
     private void updateAnnotationButtons(){
         MediaChapter back=adjacentChapter(-1),ahead=adjacentChapter(1);
-        boolean hasBack=back!=null,hasAhead=ahead!=null;
+        boolean hasBack=back!=null,hasAhead=ahead!=null,hasAheadEdge=youtubeJumpAheadEligible||hasAhead;
         previousScene.setVisibility(hasBack?View.VISIBLE:View.GONE);
-        nextScene.setVisibility(hasAhead?View.VISIBLE:View.GONE);
+        nextScene.setVisibility(hasAheadEdge?View.VISIBLE:View.GONE);
         backSkip.setBackground(hasBack?roundSides(Color.rgb(47,44,67),18,false,true):round(Color.rgb(47,44,67),18));
-        aheadSkip.setBackground(hasAhead?roundSides(Color.rgb(47,44,67),18,true,false):round(Color.rgb(47,44,67),18));
+        aheadSkip.setBackground(hasAheadEdge?roundSides(Color.rgb(47,44,67),18,true,false):round(Color.rgb(47,44,67),18));
         if(hasBack)previousScene.setContentDescription("Previous scene annotation: "+back.title);
-        if(hasAhead)nextScene.setContentDescription("Next scene annotation: "+ahead.title);
+        if(youtubeJumpAheadEligible){nextScene.setText("JUMP");setIcon(nextScene,DeckIcon.SEEK_FORWARD,Color.BLACK,13,false);nextScene.setContentDescription("Use YouTube Premium's Jump Ahead marker");}
+        else if(hasAhead){nextScene.setText("SCENE");setIcon(nextScene,DeckIcon.NEXT,Color.BLACK,13,false);nextScene.setContentDescription("Next scene annotation: "+ahead.title);}
+    }
+
+    private void jumpSmartAhead(){
+        if(!youtubeJumpAheadEligible){jumpAnnotation(1);return;}
+        io.execute(()->{
+            try{JSONObject result=new JSONObject(post("/api/youtube/jumpahead"));String message=result.optString("message","Skipped embedded segment");ui.post(()->Toast.makeText(this,message,Toast.LENGTH_SHORT).show());}
+            catch(Exception error){ui.post(()->Toast.makeText(this,"No Premium Jump Ahead marker — using default skip",Toast.LENGTH_SHORT).show());skipBy(1);}
+            ui.postDelayed(()->refresh(false),900);
+        });
     }
 
     private void jumpAnnotation(int direction){
@@ -883,7 +894,7 @@ public final class MainActivity extends Activity {
         scene.setPadding(dp(2),0,dp(2),0);
         scene.setBackground(roundSides(SCENE_BLUE,18,!forward,forward));
         scene.setVisibility(View.GONE);
-        scene.setOnClickListener(v->jumpAnnotation(forward?1:-1));
+        scene.setOnClickListener(v->{if(forward)jumpSmartAhead();else jumpAnnotation(-1);});
         if(forward){aheadSkip=skip;nextScene=scene;group.addView(skip,new LinearLayout.LayoutParams(0,-1,1));group.addView(scene,new LinearLayout.LayoutParams(dp(67),-1));}
         else{backSkip=skip;previousScene=scene;group.addView(scene,new LinearLayout.LayoutParams(dp(67),-1));group.addView(skip,new LinearLayout.LayoutParams(0,-1,1));}
         return group;
