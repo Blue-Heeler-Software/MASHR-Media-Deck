@@ -68,6 +68,7 @@ Unauthenticated routes are limited to `/`, `/api/health`, `/api/pair`, and `/api
   "repeat": "none",
   "youtubeAvailable": false,
   "youtubeVolume": -1,
+  "youtubeJumpAheadEligible": false,
   "chapters": [],
   "instantReplayAvailable": false,
   "instantReplayEnabled": false,
@@ -92,6 +93,7 @@ Providers should use `0` when a timeline is unavailable, `-1` when YouTube playe
 | `POST /api/skip?seconds=-120..120` | Skip by a bounded, non-zero signed duration |
 | `POST /api/control/{command}` | Invoke one fixed allowlisted action |
 | `POST /api/youtube/volume?level=0..100` | Set the selected YouTube player's own volume |
+| `POST /api/youtube/jumpahead` | Ask the verified signed-in YouTube watch player to use its Premium Jump Ahead marker; `409` when unavailable |
 
 Baseline control names are `play`, `pause`, `stop`, `next`, `previous`, `back10`, `forward10`, `shuffle`, `repeat`, `mute`, `volumedown`, and `volumeup`. `back10` and `forward10` remain fixed compatibility commands; new clients should use bounded `POST /api/skip` for a user-selected skip duration. Windows-only controls currently include `movescreen`, `screenshot`, `alttab`, `altdown`, `altup`, `arrowleft`, `arrowright`, `instantreplay`, and `replayarm`. YouTube-specific controls are `like`, `dislike`, and `subscribe`.
 

@@ -214,9 +214,9 @@ app.MapGet("/api/now", async (HttpContext context) =>
     var replay = NvidiaReplayState.Read();
     var session = await Session();
     if (preferVlc && VlcProvider.TryInfo(out var vlc))
-        return Results.Json(new { title = vlc.Title, artist = "VLC media player", source = "VLC.PC", playing = vlc.Playing, positionMs = 0L, durationMs = 0L, shuffle = false, repeat = "none", youtubeAvailable = youtube.IsFresh, youtubeVolume = -1, chapters = Array.Empty<MediaChapter>(), instantReplayAvailable = replay.Available, instantReplayEnabled = replay.Enabled, instantReplaySeconds = replay.BufferSeconds });
+        return Results.Json(new { title = vlc.Title, artist = "VLC media player", source = "VLC.PC", playing = vlc.Playing, positionMs = 0L, durationMs = 0L, shuffle = false, repeat = "none", youtubeAvailable = youtube.IsFresh, youtubeVolume = -1, youtubeJumpAheadEligible = false, chapters = Array.Empty<MediaChapter>(), instantReplayAvailable = replay.Available, instantReplayEnabled = replay.Enabled, instantReplaySeconds = replay.BufferSeconds });
     if (session is null)
-        return Results.Json(new { title = "Nothing playing", artist = "Start YouTube Music or another player on this PC", source = "Windows", playing = false, positionMs = 0L, durationMs = 0L, shuffle = false, repeat = "none", youtubeAvailable = youtube.IsFresh, youtubeVolume = -1, chapters = Array.Empty<MediaChapter>(), instantReplayAvailable = replay.Available, instantReplayEnabled = replay.Enabled, instantReplaySeconds = replay.BufferSeconds });
+        return Results.Json(new { title = "Nothing playing", artist = "Start YouTube Music or another player on this PC", source = "Windows", playing = false, positionMs = 0L, durationMs = 0L, shuffle = false, repeat = "none", youtubeAvailable = youtube.IsFresh, youtubeVolume = -1, youtubeJumpAheadEligible = false, chapters = Array.Empty<MediaChapter>(), instantReplayAvailable = replay.Available, instantReplayEnabled = replay.Enabled, instantReplaySeconds = replay.BufferSeconds });
     var media = await session.TryGetMediaPropertiesAsync();
     var playback = session.GetPlaybackInfo();
     var timeline = session.GetTimelineProperties();
@@ -224,6 +224,7 @@ app.MapGet("/api/now", async (HttpContext context) =>
     var position = TimelineClock.PositionMs(playback, timeline);
     var chapters = await youtubeChapters.GetAsync(session.SourceAppUserModelId, media.Title, duration, context.RequestAborted);
     var youtubeVolume = YouTubeActions.ReadVolume(session.SourceAppUserModelId, media.Title);
+    var youtubeJumpAheadEligible = BrowserYouTube.TryCurrentVideoId(session.SourceAppUserModelId, media.Title, out _);
     return Results.Json(new
     {
         title = media.Title,
@@ -236,6 +237,7 @@ app.MapGet("/api/now", async (HttpContext context) =>
         repeat = (playback.AutoRepeatMode ?? MediaPlaybackAutoRepeatMode.None).ToString().ToLowerInvariant(),
         youtubeAvailable = youtube.IsFresh,
         youtubeVolume,
+        youtubeJumpAheadEligible,
         chapters,
         instantReplayAvailable = replay.Available,
         instantReplayEnabled = replay.Enabled,
@@ -406,6 +408,34 @@ app.MapPost("/api/youtube/volume", async (int level) =>
     return result.Success
         ? Results.Json(new { volume = result.Volume, message = result.Message })
         : Results.Json(new { error = result.Message }, statusCode: StatusCodes.Status409Conflict);
+});
+
+app.MapPost("/api/youtube/jumpahead", async () =>
+{
+    var session = await Session();
+    if (preferVlc || session is null)
+        return Results.Json(new { error = "Select a YouTube video first." }, statusCode: StatusCodes.Status409Conflict);
+    var media = await session.TryGetMediaPropertiesAsync();
+    var playbackBefore = session.GetPlaybackInfo();
+    var before = TimelineClock.PositionMs(playbackBefore, session.GetTimelineProperties());
+    var checkStarted = Stopwatch.GetTimestamp();
+    var result = YouTubeActions.JumpAhead(session.SourceAppUserModelId, media.Title);
+    if (!result.Success)
+        return Results.Json(new { error = result.Message }, statusCode: StatusCodes.Status409Conflict);
+    var after = before;
+    var seekDelta = 0L;
+    for (var attempt = 0; attempt < 4 && seekDelta <= 5000; attempt++)
+    {
+        await Task.Delay(300);
+        after = TimelineClock.PositionMs(session.GetPlaybackInfo(), session.GetTimelineProperties());
+        var naturalAdvance = playbackBefore.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
+            ? (long)Stopwatch.GetElapsedTime(checkStarted).TotalMilliseconds
+            : 0L;
+        seekDelta = after - before - naturalAdvance;
+    }
+    return seekDelta > 5000
+        ? Results.Json(new { action = result.Action, message = result.Message, fromMs = before, toMs = after })
+        : Results.Json(new { error = "YouTube did not expose a Premium Jump Ahead marker here." }, statusCode: StatusCodes.Status409Conflict);
 });
 
 app.MapPost("/api/browser/youtube/state", async (HttpRequest request) =>
@@ -1331,6 +1361,62 @@ static class YouTubeActions
         {
             return YouTubeActionResult.Failed("The selected YouTube window changed while the action was being sent; try again.");
         }
+    }
+
+    public static YouTubeActionResult JumpAhead(string source, string mediaTitle)
+    {
+        if (!TrySelectedYouTube(source, mediaTitle, out var root, out var uri, out var selectionError))
+            return YouTubeActionResult.Failed(selectionError);
+        if (!uri.AbsolutePath.Equals("/watch", StringComparison.OrdinalIgnoreCase))
+            return YouTubeActionResult.Failed("Select a standard YouTube watch video first.");
+        try
+        {
+            var buttons = root.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button));
+            foreach (AutomationElement button in buttons)
+            {
+                try
+                {
+                    var name = button.Current.Name?.Trim() ?? "";
+                    if (!button.Current.IsEnabled || button.Current.IsOffscreen || !name.StartsWith("Jump ahead", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (button.TryGetCurrentPattern(InvokePattern.Pattern, out var pattern) && pattern is InvokePattern invoke)
+                    {
+                        invoke.Invoke();
+                        return new(true, "premium-jump-ahead", "Skipped the embedded segment with YouTube Premium");
+                    }
+                }
+                catch (ElementNotAvailableException) { }
+            }
+
+            var hosts = root.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ClassNameProperty, "Chrome_RenderWidgetHostHWND"));
+            foreach (AutomationElement host in hosts)
+            {
+                try
+                {
+                    if (host.Current.IsOffscreen || host.Current.NativeWindowHandle == 0) continue;
+                    var window = (IntPtr)host.Current.NativeWindowHandle;
+                    if (PostControlRight(window)) return new(true, "premium-jump-ahead", "Requested YouTube Premium Jump Ahead");
+                }
+                catch (ElementNotAvailableException) { }
+            }
+            return YouTubeActionResult.Failed("The active YouTube player could not receive the Premium Jump Ahead shortcut.");
+        }
+        catch (Exception error) when (error is COMException or InvalidOperationException)
+        {
+            return YouTubeActionResult.Failed("Windows could not reach YouTube's Premium Jump Ahead control.");
+        }
+    }
+
+    private static bool PostControlRight(IntPtr window)
+    {
+        const uint control = 0x11, right = 0x27;
+        var controlDown = (IntPtr)0x001D0001;
+        var controlUp = (IntPtr)unchecked((int)0xC01D0001u);
+        var rightDown = (IntPtr)0x014D0001;
+        var rightUp = (IntPtr)unchecked((int)0xC14D0001u);
+        return PostMessage(window, WmKeyDown, (UIntPtr)control, controlDown) &&
+            PostMessage(window, WmKeyDown, (UIntPtr)right, rightDown) &&
+            PostMessage(window, WmKeyUp, (UIntPtr)right, rightUp) &&
+            PostMessage(window, WmKeyUp, (UIntPtr)control, controlUp);
     }
 
     public static int ReadVolume(string source, string mediaTitle)
