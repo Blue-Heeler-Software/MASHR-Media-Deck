@@ -2,6 +2,12 @@
 
 All notable MASHR Media Deck changes are recorded here.
 
+## 1.9.12 — 2026-07-27
+
+### Added
+
+- Added a compact PC-wide microphone mute beside the guarded game-replay swipe. It reads and toggles every active Windows capture endpoint, stays black with a red mute slash while microphones are live, and inverts to red with a black glyph while muted.
+
 ## 1.9.11 — 2026-07-23
 
 ### Added

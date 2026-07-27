@@ -212,11 +212,12 @@ app.MapPost("/api/pair/nearby", (HttpContext context) =>
 app.MapGet("/api/now", async (HttpContext context) =>
 {
     var replay = NvidiaReplayState.Read();
+    var microphone = MicrophoneMuteState.Read();
     var session = await Session();
     if (preferVlc && VlcProvider.TryInfo(out var vlc))
-        return Results.Json(new { title = vlc.Title, artist = "VLC media player", source = "VLC.PC", playing = vlc.Playing, positionMs = 0L, durationMs = 0L, shuffle = false, repeat = "none", youtubeAvailable = youtube.IsFresh, youtubeVolume = -1, youtubeJumpAheadEligible = false, chapters = Array.Empty<MediaChapter>(), instantReplayAvailable = replay.Available, instantReplayEnabled = replay.Enabled, instantReplaySeconds = replay.BufferSeconds });
+        return Results.Json(new { title = vlc.Title, artist = "VLC media player", source = "VLC.PC", playing = vlc.Playing, positionMs = 0L, durationMs = 0L, shuffle = false, repeat = "none", youtubeAvailable = youtube.IsFresh, youtubeVolume = -1, youtubeJumpAheadEligible = false, chapters = Array.Empty<MediaChapter>(), instantReplayAvailable = replay.Available, instantReplayEnabled = replay.Enabled, instantReplaySeconds = replay.BufferSeconds, microphoneAvailable = microphone.Available, microphoneMuted = microphone.Muted });
     if (session is null)
-        return Results.Json(new { title = "Nothing playing", artist = "Start YouTube Music or another player on this PC", source = "Windows", playing = false, positionMs = 0L, durationMs = 0L, shuffle = false, repeat = "none", youtubeAvailable = youtube.IsFresh, youtubeVolume = -1, youtubeJumpAheadEligible = false, chapters = Array.Empty<MediaChapter>(), instantReplayAvailable = replay.Available, instantReplayEnabled = replay.Enabled, instantReplaySeconds = replay.BufferSeconds });
+        return Results.Json(new { title = "Nothing playing", artist = "Start YouTube Music or another player on this PC", source = "Windows", playing = false, positionMs = 0L, durationMs = 0L, shuffle = false, repeat = "none", youtubeAvailable = youtube.IsFresh, youtubeVolume = -1, youtubeJumpAheadEligible = false, chapters = Array.Empty<MediaChapter>(), instantReplayAvailable = replay.Available, instantReplayEnabled = replay.Enabled, instantReplaySeconds = replay.BufferSeconds, microphoneAvailable = microphone.Available, microphoneMuted = microphone.Muted });
     var media = await session.TryGetMediaPropertiesAsync();
     var playback = session.GetPlaybackInfo();
     var timeline = session.GetTimelineProperties();
@@ -241,7 +242,9 @@ app.MapGet("/api/now", async (HttpContext context) =>
         chapters,
         instantReplayAvailable = replay.Available,
         instantReplayEnabled = replay.Enabled,
-        instantReplaySeconds = replay.BufferSeconds
+        instantReplaySeconds = replay.BufferSeconds,
+        microphoneAvailable = microphone.Available,
+        microphoneMuted = microphone.Muted
     });
 });
 
@@ -340,6 +343,19 @@ app.MapPost("/api/control/{command}", async (string command) =>
         if (replay.Enabled) return Results.Json(new { action = "already-armed", bufferSeconds = replay.BufferSeconds });
         MediaKeys.Hotkey(replay.ToggleKeys);
         return Results.Json(new { action = "arming", bufferSeconds = replay.BufferSeconds });
+    }
+    if (command == "micmute")
+    {
+        var microphone = MicrophoneMuteState.Toggle();
+        if (!microphone.Success)
+            return Results.Json(new { error = microphone.Error, microphoneAvailable = microphone.Available, microphoneMuted = microphone.Muted }, statusCode: StatusCodes.Status409Conflict);
+        return Results.Json(new
+        {
+            action = microphone.Muted ? "microphone-muted" : "microphone-live",
+            microphoneAvailable = microphone.Available,
+            microphoneMuted = microphone.Muted,
+            message = microphone.Muted ? "PC microphone muted" : "PC microphone live"
+        });
     }
     if (command == "altdown") { MediaKeys.BeginAltTab(); return Results.Ok(); }
     if (command == "altup") { MediaKeys.EndAltTab(); return Results.Ok(); }
@@ -1103,6 +1119,199 @@ static class NvidiaReplayState
             .Where(key => key is >= 8 and <= 254)
             .Distinct()
             .ToArray();
+    }
+}
+
+sealed record MicrophoneMuteSnapshot(bool Available, bool Muted)
+{
+    public static MicrophoneMuteSnapshot Unavailable { get; } = new(false, false);
+}
+
+sealed record MicrophoneMuteResult(bool Success, bool Available, bool Muted, string Error);
+
+static class MicrophoneMuteState
+{
+    private static readonly object Gate = new();
+    private static readonly Guid AudioEndpointVolumeId = new("5CDF2C82-841E-4546-9722-0CF74078229A");
+    private static readonly Guid EventContext = new("7D199E76-E0EC-4C8A-8AE4-6163797704A1");
+    private const uint ActiveDeviceState = 0x1;
+
+    public static MicrophoneMuteSnapshot Read()
+    {
+        lock (Gate) return ReadLocked();
+    }
+
+    public static MicrophoneMuteResult Toggle()
+    {
+        lock (Gate)
+        {
+            var current = ReadLocked();
+            if (!current.Available)
+                return new(false, false, false, "Windows has no active microphone endpoint.");
+
+            var target = !current.Muted;
+            var endpoints = OpenActive();
+            var changed = endpoints.Count > 0;
+            try
+            {
+                foreach (var endpoint in endpoints)
+                {
+                    var context = EventContext;
+                    if (endpoint.Volume.SetMute(target, ref context) < 0) changed = false;
+                }
+            }
+            finally { endpoints.ForEach(endpoint => endpoint.Dispose()); }
+
+            var final = ReadLocked();
+            if (!changed || !final.Available || final.Muted != target)
+                return new(false, final.Available, final.Muted, "Windows could not change every active microphone mute state.");
+            return new(true, true, final.Muted, "");
+        }
+    }
+
+    private static MicrophoneMuteSnapshot ReadLocked()
+    {
+        try
+        {
+            var states = new List<bool>();
+            var endpoints = OpenActive();
+            try
+            {
+                foreach (var endpoint in endpoints)
+                    if (endpoint.Volume.GetMute(out var muted) >= 0) states.Add(muted);
+            }
+            finally { endpoints.ForEach(endpoint => endpoint.Dispose()); }
+            return states.Count == 0 || states.Count != endpoints.Count
+                ? MicrophoneMuteSnapshot.Unavailable
+                : new(true, states.All(muted => muted));
+        }
+        catch (Exception error) when (error is COMException or InvalidCastException or PlatformNotSupportedException)
+        {
+            return MicrophoneMuteSnapshot.Unavailable;
+        }
+    }
+
+    private static List<EndpointHandle> OpenActive()
+    {
+        var result = new List<EndpointHandle>();
+        object? enumeratorObject = null;
+        IMMDeviceCollection? devices = null;
+        IMMDevice? device = null;
+        object? volumeObject = null;
+        try
+        {
+            enumeratorObject = new MMDeviceEnumeratorComObject();
+            var enumerator = (IMMDeviceEnumerator)enumeratorObject;
+            if (enumerator.EnumAudioEndpoints(AudioDataFlow.Capture, ActiveDeviceState, out devices) < 0 || devices is null || devices.GetCount(out var count) < 0)
+                return result;
+            for (uint index = 0; index < count; index++)
+            {
+                if (devices.Item(index, out device) < 0 || device is null) continue;
+                var interfaceId = AudioEndpointVolumeId;
+                if (device.Activate(ref interfaceId, ClassContext.All, IntPtr.Zero, out volumeObject) >= 0 && volumeObject is IAudioEndpointVolume volume)
+                {
+                    result.Add(new(device, volumeObject, volume));
+                    device = null;
+                    volumeObject = null;
+                }
+                Release(volumeObject);
+                Release(device);
+                volumeObject = null;
+                device = null;
+            }
+        }
+        catch (COMException)
+        {
+            result.ForEach(endpoint => endpoint.Dispose());
+            result.Clear();
+        }
+        finally
+        {
+            Release(volumeObject);
+            Release(device);
+            Release(devices);
+            Release(enumeratorObject);
+        }
+        return result;
+    }
+
+    private static void Release(object? value)
+    {
+        if (value is not null && Marshal.IsComObject(value))
+            try { Marshal.FinalReleaseComObject(value); } catch { }
+    }
+
+    private sealed class EndpointHandle(IMMDevice device, object volumeObject, IAudioEndpointVolume volume) : IDisposable
+    {
+        public IAudioEndpointVolume Volume { get; } = volume;
+        public void Dispose()
+        {
+            Release(volumeObject);
+            Release(device);
+        }
+    }
+
+    private enum AudioDataFlow { Render, Capture, All }
+    private enum EndpointRole { Console, Multimedia, Communications }
+
+    [Flags]
+    private enum ClassContext : uint
+    {
+        InProcessServer = 0x1,
+        InProcessHandler = 0x2,
+        LocalServer = 0x4,
+        RemoteServer = 0x10,
+        All = InProcessServer | InProcessHandler | LocalServer | RemoteServer
+    }
+
+    [ComImport]
+    [Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+    private sealed class MMDeviceEnumeratorComObject;
+
+    [ComImport]
+    [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IMMDeviceEnumerator
+    {
+        [PreserveSig] int EnumAudioEndpoints(AudioDataFlow dataFlow, uint stateMask, out IMMDeviceCollection devices);
+        [PreserveSig] int GetDefaultAudioEndpoint(AudioDataFlow dataFlow, EndpointRole role, out IMMDevice device);
+    }
+
+    [ComImport]
+    [Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IMMDeviceCollection
+    {
+        [PreserveSig] int GetCount(out uint deviceCount);
+        [PreserveSig] int Item(uint index, out IMMDevice device);
+    }
+
+    [ComImport]
+    [Guid("D666063F-1587-4E43-81F1-B948E807363F")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IMMDevice
+    {
+        [PreserveSig] int Activate(ref Guid interfaceId, ClassContext context, IntPtr activationParameters, [MarshalAs(UnmanagedType.IUnknown)] out object endpoint);
+    }
+
+    [ComImport]
+    [Guid("5CDF2C82-841E-4546-9722-0CF74078229A")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IAudioEndpointVolume
+    {
+        [PreserveSig] int RegisterControlChangeNotify(IntPtr notify);
+        [PreserveSig] int UnregisterControlChangeNotify(IntPtr notify);
+        [PreserveSig] int GetChannelCount(out uint channelCount);
+        [PreserveSig] int SetMasterVolumeLevel(float levelDb, ref Guid eventContext);
+        [PreserveSig] int SetMasterVolumeLevelScalar(float level, ref Guid eventContext);
+        [PreserveSig] int GetMasterVolumeLevel(out float levelDb);
+        [PreserveSig] int GetMasterVolumeLevelScalar(out float level);
+        [PreserveSig] int SetChannelVolumeLevel(uint channel, float levelDb, ref Guid eventContext);
+        [PreserveSig] int SetChannelVolumeLevelScalar(uint channel, float level, ref Guid eventContext);
+        [PreserveSig] int GetChannelVolumeLevel(uint channel, out float levelDb);
+        [PreserveSig] int GetChannelVolumeLevelScalar(uint channel, out float level);
+        [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool muted, ref Guid eventContext);
+        [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool muted);
     }
 }
 

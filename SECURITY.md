@@ -24,6 +24,8 @@ YouTube Premium embedded-segment skipping accepts no timestamp, key code, window
 
 NVIDIA replay controls read the current user's local NVIDIA Overlay settings. Hotkeys are sourced from NVIDIA's `DVRSave` and `DVRToggle` arrays, limited to four valid virtual-key codes, and never supplied by the phone. The arm endpoint is one-way: if replay is already enabled it does not toggle it off.
 
+Microphone mute is one fixed authenticated `micmute` command with no caller-supplied device ID, endpoint name, volume, process, or executable. The Windows companion enumerates active capture endpoints locally through Core Audio, reads their real mute state for every deck refresh, and can only invert that bounded mute state.
+
 The monitor-switch command accepts no process ID, window handle, coordinates, or executable name from the phone. The companion derives an allowlisted player process from the authenticated Windows media session, requires an unambiguous top-level media window, and moves it without activation or Z-order changes.
 
 ## Remaining limitation
