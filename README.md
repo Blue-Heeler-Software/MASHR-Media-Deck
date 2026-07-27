@@ -19,7 +19,7 @@ MASHR Media Deck is a second-screen Android remote built for PC gamers who do no
 
 ## No extension needed
 
-**Everything in the core deck works with the Android app and Windows companion alone.** That includes YouTube artwork and metadata, live progress, chapter markers, the tappable **SCENES** list, Like/Dislike/Subscribe, actual YouTube player volume, transport and system-volume controls, monitor switching, held Alt+Tab, NVIDIA replay, local pairing, and automatic reconnect.
+**Everything in the core deck works with the Android app and Windows companion alone.** That includes YouTube artwork and metadata, live progress, chapter markers, the tappable **SCENES** list, Like/Dislike/Subscribe, actual YouTube player volume, transport and system-volume controls, PC-wide microphone mute, monitor switching, held Alt+Tab, NVIDIA replay, local pairing, and automatic reconnect.
 
 The browser helper is not required for any control shown above. It exists for one separate, optional extra: the 3×3 related-video grid. Ignore or delete `browser-extension` and the main experience is unchanged.
 
@@ -32,6 +32,7 @@ The browser helper is not required for any control shown above. It exists for on
 - Extension-free YouTube **LIKE**, **DISLIKE**, and **SUB** controls through the selected browser window's Windows accessibility surface.
 - A compact **YT VOL** slider that reads and changes the selected YouTube player's own 0–100 volume without changing Windows master volume.
 - Guarded NVIDIA Instant Replay slider that shows whether the buffer is off, arms it explicitly, and labels the armed action **RECORD LAST 2:00 OF GAME** (using the detected buffer length).
+- Compact system microphone mute beside replay: black with a red slash while live, inverted red/black while muted, and always driven by the real state of Windows' active capture endpoints.
 - Hold-to-use Alt+Tab: keep the yellow control held and use **PREV/NEXT** as window-switcher arrows.
 - Move the selected media window to the next monitor without stealing focus.
 - Save a PC screenshot using NVIDIA Overlay's configured shortcut, with a Windows fallback.
@@ -111,6 +112,7 @@ MASHR Media Deck is not a general remote-desktop app. It exposes a small allowli
 | YouTube itself is too loud | Drag the tiny **YT VOL** slider |
 | The media window is on the wrong display | Tap **MOVE SCREEN** |
 | Something worth clipping just happened | Swipe **RECORD LAST 2:00 OF GAME** |
+| Voice chat needs instant silence | Tap the crossed **MIC** beside the replay swipe |
 | A different PC window is needed | Hold **ALT + TAB**, then tap **PREV/NEXT** |
 
 ## Security model

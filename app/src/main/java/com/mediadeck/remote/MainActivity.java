@@ -83,9 +83,10 @@ public final class MainActivity extends Activity {
     private ChapterSeekBar timeline;
     private SeekBar youtubeVolume;
     private SwipeReplayView replay;
+    private MicMuteView microphoneMute;
     private String base="",deviceKey="",deviceId="",deviceName="",lastTrack="",pairRequestToken="";
     private KeyPair nearbyPairKey;
-    private boolean running,destroyed,requestPending,userSeeking,youtubeVolumeSeeking,altHeld,youtubeAvailable,youtubeJumpAheadEligible,artworkPending,artworkLoaded,replayAvailable,replayEnabled;
+    private boolean running,destroyed,requestPending,userSeeking,youtubeVolumeSeeking,altHeld,youtubeAvailable,youtubeJumpAheadEligible,artworkPending,artworkLoaded,replayAvailable,replayEnabled,microphoneAvailable,microphoneMuted;
     private long durationMs,positionMs,lastArtworkAttemptMs;
     private int replaySeconds=120,skipSeconds=10;
     private final ArrayList<MediaChapter> chapters=new ArrayList<>();
@@ -329,10 +330,19 @@ public final class MainActivity extends Activity {
         youtubeVolumeRow.addView(youtubeVolumeValue,new LinearLayout.LayoutParams(dp(38),-1));
         card.addView(youtubeVolumeRow,new LinearLayout.LayoutParams(-1,dp(23)));
 
+        LinearLayout replayRow=new LinearLayout(this);
+        replayRow.setGravity(Gravity.CENTER);
         replay=new SwipeReplayView(this::handleReplayGesture);
-        LinearLayout.LayoutParams replayLp=new LinearLayout.LayoutParams(-1,dp(62));
-        replayLp.setMargins(dp(2),dp(5),dp(2),0);
-        card.addView(replay,replayLp);
+        LinearLayout.LayoutParams replayLp=new LinearLayout.LayoutParams(0,-1,1);
+        replayLp.setMargins(dp(2),0,dp(2),0);
+        replayRow.addView(replay,replayLp);
+        microphoneMute=new MicMuteView(this::toggleMicrophoneMute);
+        LinearLayout.LayoutParams microphoneLp=new LinearLayout.LayoutParams(dp(62),-1);
+        microphoneLp.setMargins(dp(2),0,dp(2),0);
+        replayRow.addView(microphoneMute,microphoneLp);
+        LinearLayout.LayoutParams replayRowLp=new LinearLayout.LayoutParams(-1,dp(62));
+        replayRowLp.setMargins(0,dp(5),0,0);
+        card.addView(replayRow,replayRowLp);
         root.addView(card);
         setContentView(root);
         root.requestApplyInsets();
@@ -392,6 +402,9 @@ public final class MainActivity extends Activity {
         replayEnabled=data.optBoolean("instantReplayEnabled",false);
         replaySeconds=Math.max(15,data.optInt("instantReplaySeconds",120));
         replay.setReplayState(replayAvailable,replayEnabled,replaySeconds);
+        microphoneAvailable=data.optBoolean("microphoneAvailable",false);
+        microphoneMuted=data.optBoolean("microphoneMuted",false);
+        microphoneMute.setMicrophoneState(microphoneAvailable,microphoneMuted);
         int playerVolume=data.optInt("youtubeVolume",-1);
         youtubeVolume.setEnabled(playerVolume>=0);
         youtubeVolume.setAlpha(playerVolume>=0?1f:.35f);
@@ -631,6 +644,21 @@ public final class MainActivity extends Activity {
                 try{if(durationMs>0)post("/api/seek?positionMs="+fallbackPosition);else post("/api/control/"+(seconds<0?"back10":"forward10"));}catch(Exception ignored){}
             }
             ui.postDelayed(()->refresh(false),180);
+        });
+    }
+
+    private void toggleMicrophoneMute(){
+        if(!microphoneAvailable){Toast.makeText(this,"No Windows microphone endpoint is available.",Toast.LENGTH_LONG).show();return;}
+        microphoneMute.setBusy(true);
+        io.execute(()->{
+            try{
+                JSONObject result=new JSONObject(post("/api/control/micmute"));
+                boolean muted=result.optBoolean("microphoneMuted",microphoneMuted);
+                microphoneMuted=muted;
+                ui.post(()->{microphoneMute.setMicrophoneState(true,muted);Toast.makeText(this,muted?"PC microphone muted":"PC microphone live",Toast.LENGTH_SHORT).show();});
+            }catch(Exception error){ui.post(()->Toast.makeText(this,"Microphone control failed: "+apiError(error),Toast.LENGTH_LONG).show());}
+            finally{ui.post(()->microphoneMute.setBusy(false));}
+            ui.postDelayed(()->refresh(false),250);
         });
     }
 
@@ -975,6 +1003,53 @@ public final class MainActivity extends Activity {
                 float x=left+width*Math.min(1f,(float)position/chapterDurationMs);
                 canvas.drawRoundRect(x-half,center-height,x+half,center+height,half,half,marker);
             }
+        }
+    }
+
+    private final class MicMuteView extends View {
+        private final Paint background=new Paint(Paint.ANTI_ALIAS_FLAG),microphone=new Paint(Paint.ANTI_ALIAS_FLAG),slash=new Paint(Paint.ANTI_ALIAS_FLAG),label=new Paint(Paint.ANTI_ALIAS_FLAG);
+        private boolean available,muted,busy;
+        MicMuteView(Runnable activate){
+            super(MainActivity.this);
+            setFocusable(true);
+            setClickable(true);
+            microphone.setStyle(Paint.Style.STROKE);
+            microphone.setStrokeCap(Paint.Cap.ROUND);
+            microphone.setStrokeJoin(Paint.Join.ROUND);
+            microphone.setStrokeWidth(dp(2));
+            slash.setStyle(Paint.Style.STROKE);
+            slash.setStrokeCap(Paint.Cap.ROUND);
+            slash.setStrokeWidth(dp(4));
+            label.setTextAlign(Paint.Align.CENTER);
+            label.setTypeface(Typeface.DEFAULT_BOLD);
+            label.setTextSize(getResources().getDisplayMetrics().scaledDensity*8.5f);
+            setOnClickListener(v->{if(available&&!busy){performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);activate.run();}});
+            setMicrophoneState(false,false);
+        }
+        void setMicrophoneState(boolean available,boolean muted){
+            this.available=available;
+            this.muted=muted;
+            setEnabled(available&&!busy);
+            setAlpha(available?1f:.45f);
+            setContentDescription(!available?"PC microphone unavailable":muted?"PC microphone muted. Tap to make it live.":"PC microphone live. Tap to mute.");
+            invalidate();
+        }
+        void setBusy(boolean busy){this.busy=busy;setEnabled(available&&!busy);invalidate();}
+        @Override protected void onDraw(Canvas canvas){
+            super.onDraw(canvas);
+            int red=Color.rgb(239,68,68);
+            background.setColor(muted?red:Color.BLACK);
+            microphone.setColor(muted?Color.BLACK:Color.WHITE);
+            slash.setColor(muted?Color.BLACK:red);
+            label.setColor(muted?Color.BLACK:Color.WHITE);
+            canvas.drawRoundRect(new RectF(0,0,getWidth(),getHeight()),dp(18),dp(18),background);
+            float center=getWidth()/2f,micHalf=dp(6);
+            canvas.drawRoundRect(new RectF(center-micHalf,dp(8),center+micHalf,dp(29)),micHalf,micHalf,microphone);
+            canvas.drawArc(new RectF(center-dp(11),dp(20),center+dp(11),dp(38)),0,180,false,microphone);
+            canvas.drawLine(center,dp(38),center,dp(43),microphone);
+            canvas.drawLine(center-dp(8),dp(43),center+dp(8),dp(43),microphone);
+            canvas.drawLine(center-dp(13),dp(8),center+dp(13),dp(38),slash);
+            canvas.drawText(busy?"...":"MIC",center,dp(56),label);
         }
     }
 

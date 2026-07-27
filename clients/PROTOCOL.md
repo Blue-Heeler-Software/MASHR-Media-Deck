@@ -72,7 +72,9 @@ Unauthenticated routes are limited to `/`, `/api/health`, `/api/pair`, and `/api
   "chapters": [],
   "instantReplayAvailable": false,
   "instantReplayEnabled": false,
-  "instantReplaySeconds": 0
+  "instantReplaySeconds": 0,
+  "microphoneAvailable": true,
+  "microphoneMuted": false
 }
 ```
 
@@ -95,7 +97,7 @@ Providers should use `0` when a timeline is unavailable, `-1` when YouTube playe
 | `POST /api/youtube/volume?level=0..100` | Set the selected YouTube player's own volume |
 | `POST /api/youtube/jumpahead` | Ask the verified signed-in YouTube watch player to use its Premium Jump Ahead marker; `409` when unavailable |
 
-Baseline control names are `play`, `pause`, `stop`, `next`, `previous`, `back10`, `forward10`, `shuffle`, `repeat`, `mute`, `volumedown`, and `volumeup`. `back10` and `forward10` remain fixed compatibility commands; new clients should use bounded `POST /api/skip` for a user-selected skip duration. Windows-only controls currently include `movescreen`, `screenshot`, `alttab`, `altdown`, `altup`, `arrowleft`, `arrowright`, `instantreplay`, and `replayarm`. YouTube-specific controls are `like`, `dislike`, and `subscribe`.
+Baseline control names are `play`, `pause`, `stop`, `next`, `previous`, `back10`, `forward10`, `shuffle`, `repeat`, `mute`, `volumedown`, and `volumeup`. `back10` and `forward10` remain fixed compatibility commands; new clients should use bounded `POST /api/skip` for a user-selected skip duration. Windows-only controls currently include `movescreen`, `screenshot`, `alttab`, `altdown`, `altup`, `arrowleft`, `arrowright`, `instantreplay`, `replayarm`, and `micmute`. YouTube-specific controls are `like`, `dislike`, and `subscribe`.
 
 A port must return an explicit non-success result for an unsupported action. It must never reinterpret an unknown command as a shell command, key sequence, AppleScript fragment, D-Bus member, process name, or window identifier.
 
