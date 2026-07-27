@@ -234,8 +234,15 @@ public final class MainActivity extends Activity {
         LinearLayout volumeRow=new LinearLayout(this);
         volumeRow.setGravity(Gravity.CENTER);
         volumeRow.setPadding(0,dp(5),0,0);
-        addWeighted(volumeRow,iconAction("VOLUME DOWN","volumedown",10,DeckIcon.VOLUME_DOWN,INK,19,true));
-        addWeighted(volumeRow,iconAction("VOLUME UP","volumeup",10,DeckIcon.VOLUME_UP,INK,19,true));
+        int coolInk=Color.rgb(15,31,45);
+        Button volumeDown=iconAction("VOLUME DOWN","volumedown",10,DeckIcon.VOLUME_DOWN,coolInk,19,true);
+        volumeDown.setTextColor(coolInk);
+        volumeDown.setBackground(round(Color.rgb(166,190,218),20));
+        addWeighted(volumeRow,volumeDown);
+        Button volumeUp=iconAction("VOLUME UP","volumeup",10,DeckIcon.VOLUME_UP,coolInk,19,true);
+        volumeUp.setTextColor(coolInk);
+        volumeUp.setBackground(round(Color.rgb(151,207,203),20));
+        addWeighted(volumeRow,volumeUp);
         card.addView(volumeRow,new LinearLayout.LayoutParams(-1,dp(60)));
 
         LinearLayout modeRow=new LinearLayout(this);
