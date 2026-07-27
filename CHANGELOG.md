@@ -2,6 +2,12 @@
 
 All notable MASHR Media Deck changes are recorded here.
 
+## 1.9.13 — 2026-07-28
+
+### Changed
+
+- Gave the oversized **VOLUME DOWN** and **VOLUME UP** controls distinct mild cool treatments: soft slate blue for down and restrained teal for up.
+
 ## 1.9.12 — 2026-07-27
 
 ### Added
