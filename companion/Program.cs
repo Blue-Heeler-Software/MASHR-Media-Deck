@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -24,11 +25,18 @@ const int HttpPort = 43821;
 const int DiscoveryPort = 43822;
 var launchPairingMode = args.Any(argument => argument.Equals("--pairing-mode", StringComparison.OrdinalIgnoreCase));
 
+if (args.Length == 1 && args[0] == "--security-self-test")
+{
+    Environment.ExitCode = SecurityState.RunSecuritySelfTest() ? 0 : 3;
+    return;
+}
+
 if (args.Length > 0 && args[0] == "--configure-lan")
 {
     try
     {
-        if (args.Length != 3) throw new ArgumentException("Expected mode and phone address.");
+        if (args.Length != 4 || args[3] != "scoped-route-validated")
+            throw new ArgumentException("Expected a scoped, route-validated LAN configuration.");
         LanAccessPolicy.Configure(args[1], args[2]);
     }
     catch { Environment.ExitCode = 2; }
@@ -43,9 +51,7 @@ if (args.Length == 1 && args[0] == "--disable-lan")
 var lanAccess = LanAccessPolicy.Load();
 
 var builder = WebApplication.CreateSlimBuilder(args);
-builder.WebHost.UseUrls(lanAccess.IsEnabled
-    ? $"http://127.0.0.1:{HttpPort};http://{lanAccess.LocalAddress}:{HttpPort}"
-    : $"http://127.0.0.1:{HttpPort}");
+builder.WebHost.UseUrls(lanAccess.BindingUrls(HttpPort));
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.Limits.MaxRequestBodySize = 32 * 1024;
@@ -56,15 +62,19 @@ builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+    {
+        var pointerRoute = context.Request.Path == "/api/pointer";
+        var source = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            $"{source}:{(pointerRoute ? "pointer" : "general")}",
             _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 240,
+                PermitLimit = pointerRoute ? 900 : 240,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
                 AutoReplenishment = true
-            }));
+            });
+    });
     options.AddPolicy("pair", context =>
         RateLimitPartition.GetFixedWindowLimiter(
             context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
@@ -80,7 +90,10 @@ builder.Services.AddRateLimiter(options =>
             context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 90,
+                // A waiting phone polls until the user has compared the MATCH code.
+                // Leave enough room for a full manual verification window without
+                // locking the approved phone out before it can collect its grant.
+                PermitLimit = 36,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
                 AutoReplenishment = true
@@ -109,7 +122,8 @@ app.Use(async (context, next) =>
     var path = context.Request.Path;
     if (path.StartsWithSegments("/api/browser"))
     {
-        if (!NetworkPolicy.IsLoopback(remote))
+        if (!NetworkPolicy.IsLoopback(remote) ||
+            context.Request.Headers["X-MediaDeck-Browser"].ToString() != "1")
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             return;
@@ -124,14 +138,38 @@ app.Use(async (context, next) =>
         return;
     }
 
-    if (!security.Verify(context.Request))
+    if (context.Request.ContentLength is > 0 || context.Request.Headers.TransferEncoding.Count > 0)
+    {
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        await context.Response.WriteAsJsonAsync(new { error = "Authenticated request bodies are not supported." });
+        return;
+    }
+
+    if (!security.TryVerify(context.Request, out var authentication))
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
         await context.Response.WriteAsJsonAsync(new { error = "Pairing or a valid signed request is required." });
         return;
     }
 
-    await next(context);
+    var originalBody = context.Response.Body;
+    await using var responseBuffer = new MemoryStream();
+    context.Response.Body = responseBuffer;
+    try
+    {
+        await next(context);
+        var responseBytes = responseBuffer.ToArray();
+        context.Response.Headers["X-MediaDeck-Response-Nonce"] = authentication.Nonce;
+        context.Response.Headers["X-MediaDeck-Response-Signature"] =
+            SecurityState.SignResponse(authentication, context.Response.StatusCode, $"{context.Request.Path}{context.Request.QueryString}", responseBytes);
+        context.Response.ContentLength = responseBytes.Length;
+        context.Response.Body = originalBody;
+        await originalBody.WriteAsync(responseBytes, context.RequestAborted);
+    }
+    finally
+    {
+        context.Response.Body = originalBody;
+    }
 });
 
 bool MatchesForeground(string source, string process)
@@ -179,31 +217,50 @@ app.MapGet("/api/health", () => Results.Json(new
     pairingOpen = security.IsPairingOpen,
     pairingSecondsRemaining = security.PairingSecondsRemaining,
     lanMode = lanAccess.Mode,
-    bindAddress = lanAccess.IsEnabled ? lanAccess.LocalAddress?.ToString() : "loopback"
+    bindAddress = lanAccess.IsEnabled ? string.Join(",", lanAccess.LocalAddresses) : "loopback"
 }));
 app.MapPost("/api/pair", (HttpContext context) =>
 {
-    var code = context.Request.Headers["X-MediaDeck-Pairing-Code"].ToString();
-    var deviceId = context.Request.Headers["X-MediaDeck-Device"].ToString();
-    var deviceName = context.Request.Headers["X-MediaDeck-Device-Name"].ToString();
-    if (security.TryPair(code, deviceId, deviceName, context.Connection.RemoteIpAddress, out var key, out var assignedDeviceId))
-        return Results.Json(new { key, deviceId = assignedDeviceId, algorithm = "HMAC-SHA256", clockWindowSeconds = 30 });
-    return security.IsPairingOpen
-        ? Results.Json(new { error = "Pairing code is incorrect." }, statusCode: StatusCodes.Status401Unauthorized)
-        : Results.Json(new { error = "Pairing is closed. Open the PC dashboard and start pairing mode." }, statusCode: StatusCodes.Status409Conflict);
+    return Results.Json(
+        new { error = "The cleartext fallback-code exchange has been retired. Use nearby pairing and compare the verification code shown on both screens." },
+        statusCode: StatusCodes.Status410Gone);
 }).RequireRateLimiting("pair");
 
 app.MapPost("/api/pair/nearby", (HttpContext context) =>
 {
+    if (context.Request.Headers["X-MediaDeck-Pairing-Protocol"].ToString() != "2")
+        return Results.Json(new { error = "Secure nearby pairing requires protocol 2 and a matching verification code." }, statusCode: StatusCodes.Status426UpgradeRequired);
     var deviceId = context.Request.Headers["X-MediaDeck-Device"].ToString();
     var deviceName = context.Request.Headers["X-MediaDeck-Device-Name"].ToString();
     var requestToken = context.Request.Headers["X-MediaDeck-Pairing-Request"].ToString();
     var pairingPublicKey = context.Request.Headers["X-MediaDeck-Pairing-Public-Key"].ToString();
-    var result = security.TryNearbyPair(deviceId, deviceName, requestToken, pairingPublicKey, context.Connection.RemoteIpAddress, out var wrappedKey, out var expiresInSeconds);
-    return result switch
+    var result = security.TryNearbyPair(deviceId, deviceName, requestToken, pairingPublicKey, context.Connection.RemoteIpAddress);
+    return result.Status switch
     {
-        NearbyPairingStatus.Paired => Results.Json(new { status = "paired", wrappedKey, deviceId, algorithm = "RSA-OAEP-SHA256+HMAC-SHA256", clockWindowSeconds = 30 }),
-        NearbyPairingStatus.Waiting => Results.Json(new { status = "waiting", expiresInSeconds }, statusCode: StatusCodes.Status202Accepted),
+        NearbyPairingStatus.Paired => Results.Json(new
+        {
+            status = "paired",
+            wrappedKey = result.WrappedKey,
+            deviceId,
+            requestId = result.RequestId,
+            pcPublicKey = result.PcPublicKey,
+            verificationCode = result.VerificationCode,
+            pcSignature = result.PcSignature,
+            grantExpiresUnix = result.GrantExpiresUnix,
+            algorithm = "RSA-OAEP-SHA256+RSA-PSS-SHA256+HMAC-SHA256",
+            clockWindowSeconds = 30
+        }),
+        NearbyPairingStatus.Waiting => Results.Json(new
+        {
+            status = "waiting",
+            expiresInSeconds = result.ExpiresInSeconds,
+            requestId = result.RequestId,
+            pcPublicKey = result.PcPublicKey,
+            verificationCode = result.VerificationCode
+        }, statusCode: StatusCodes.Status202Accepted),
+        NearbyPairingStatus.Closed => Results.Json(
+            new { error = "Pairing is closed. Open a two-minute pairing window in the PC dashboard." },
+            statusCode: StatusCodes.Status409Conflict),
         NearbyPairingStatus.Capacity => Results.Json(new { error = "The PC has too many pending or paired controllers. Revoke one in the dashboard and try again." }, statusCode: StatusCodes.Status429TooManyRequests),
         _ => Results.Json(new { error = "Invalid nearby pairing request." }, statusCode: StatusCodes.Status400BadRequest)
     };
@@ -310,6 +367,15 @@ app.MapPost("/api/skip", async (int seconds) =>
     var target = TimelineClock.PositionTicks(playback, timeline) + TimeSpan.FromSeconds(seconds).Ticks;
     target = Math.Clamp(target, timeline.MinSeekTime.Ticks, timeline.MaxSeekTime.Ticks);
     return await session.TryChangePlaybackPositionAsync(target) ? Results.Ok() : Results.BadRequest();
+});
+
+app.MapPost("/api/pointer", (int dx, int dy) =>
+{
+    if ((dx == 0 && dy == 0) || dx is < -300 or > 300 || dy is < -300 or > 300)
+        return Results.BadRequest(new { error = "Pointer movement must be a non-zero relative delta from -300 to 300 per axis." });
+    return PointerInput.MoveRelative(dx, dy)
+        ? Results.Ok()
+        : Results.Json(new { error = "Windows refused the pointer movement." }, statusCode: StatusCodes.Status409Conflict);
 });
 
 app.MapPost("/api/control/{command}", async (string command) =>
@@ -478,11 +544,11 @@ app.MapPost("/api/browser/youtube/state", async (HttpRequest request) =>
         return Results.BadRequest();
     }
 });
-app.MapGet("/api/browser/youtube/command", () => Results.Json(new { videoId = youtube.TakeCommand() }));
+app.MapPost("/api/browser/youtube/command", () => Results.Json(new { videoId = youtube.TakeCommand() }));
 
 app.MapGet("/", () => "MASHR Media Deck Companion");
 _ = gameWindow.Run(app.Lifetime.ApplicationStopping);
-if (lanAccess.IsEnabled) _ = LanDiscovery.Run(DiscoveryPort, HttpPort, lanAccess, app.Lifetime.ApplicationStopping);
+if (lanAccess.IsEnabled) _ = LanDiscovery.Run(DiscoveryPort, HttpPort, lanAccess, () => security.IsPairingOpen, app.Lifetime.ApplicationStopping);
 TrayApplication.Start(security, app.Lifetime, lanAccess);
 app.Run();
 
@@ -493,6 +559,7 @@ sealed class SecurityState
     private const int NearbyRequestSeconds = 45;
     private const int NearbyGrantSeconds = 30;
     private const int MaximumNearbyRequests = 12;
+    private const int MaximumNearbyRequestsPerAddress = 2;
     private const string LegacyDeviceId = "legacy";
     private readonly object gate = new();
     private readonly ConcurrentDictionary<string, long> usedNonces = new();
@@ -501,10 +568,14 @@ sealed class SecurityState
     private readonly string legacyPairedPath;
     private readonly string devicesPath;
     private readonly string codePath;
+    private readonly string identityPath;
+    private readonly RSA pcIdentity;
+    private readonly byte[] pcPublicKey;
     private readonly Dictionary<string, PairedDevice> devices = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PendingPairedDevice> pendingDevices = new(StringComparer.Ordinal);
     private readonly Dictionary<string, NearbyPairingRequest> nearbyRequests = new(StringComparer.Ordinal);
     private readonly Dictionary<string, NearbyPairingGrant> nearbyGrants = new(StringComparer.Ordinal);
-    private string pairingCode = "";
+    private bool secretsNeedMigration;
     private DateTimeOffset pairingExpiresAt = DateTimeOffset.MinValue;
     private DateTimeOffset lastDeviceSave = DateTimeOffset.MinValue;
 
@@ -515,21 +586,60 @@ sealed class SecurityState
         legacyPairedPath = Path.Combine(directory, "paired.marker");
         devicesPath = Path.Combine(directory, "paired-devices.json");
         codePath = Path.Combine(directory, "pairing-code.txt");
+        identityPath = Path.Combine(directory, "pc-identity.key");
         Directory.CreateDirectory(directory);
+        pcIdentity = LoadOrCreatePcIdentity();
+        pcPublicKey = pcIdentity.ExportSubjectPublicKeyInfo();
         var storeExists = File.Exists(devicesPath);
         LoadDevices();
         var migratedLegacy = devices.Count == 0 && File.Exists(legacyPairedPath) && MigrateLegacyPairing();
-        if (!storeExists || migratedLegacy) SaveDevicesLocked();
+        if (!storeExists || migratedLegacy || secretsNeedMigration) SaveDevicesLocked();
         if (migratedLegacy) DeleteLegacyMarker();
         DeleteCodeFile();
         if (devices.Count == 0) StartPairingLocked(TimeSpan.FromSeconds(PairingWindowSeconds));
+    }
+
+    public static bool RunSecuritySelfTest()
+    {
+        try
+        {
+            if (!PointerInput.HasExpectedNativeLayout()) return false;
+            if (!LanAccessPolicy.RunSelfTest()) return false;
+            using var phone = RSA.Create(2048);
+            using var server = RSA.Create(3072);
+            var deviceId = "selftestdevice";
+            var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
+            var phonePublicKey = phone.ExportSubjectPublicKeyInfo();
+            var serverPublicKey = server.ExportSubjectPublicKeyInfo();
+            var requestId = PairingRequestId(deviceId, token, phonePublicKey);
+            var verificationCode = PairingVerificationCode(deviceId, token, phonePublicKey, serverPublicKey);
+            if (requestId.Length != 64 || verificationCode.Length != 6) return false;
+
+            var key = RandomNumberGenerator.GetBytes(32);
+            var wrapped = phone.Encrypt(key, RSAEncryptionPadding.OaepSHA256);
+            var unwrapped = phone.Decrypt(wrapped, RSAEncryptionPadding.OaepSHA256);
+            if (!CryptographicOperations.FixedTimeEquals(key, unwrapped)) return false;
+
+            var expires = DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeSeconds();
+            var grantPayload = PairingGrantPayload(requestId, wrapped, expires);
+            var signature = server.SignData(grantPayload, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
+            if (!server.VerifyData(grantPayload, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pss)) return false;
+
+            var protectedKey = LocalSecretProtection.Protect(key);
+            var restoredKey = LocalSecretProtection.Unprotect(protectedKey);
+            if (!CryptographicOperations.FixedTimeEquals(key, restoredKey)) return false;
+
+            var authentication = new AuthenticatedRequest(deviceId, key, "0123456789abcdef");
+            var response = SignResponse(authentication, 200, "/api/now", Encoding.UTF8.GetBytes("{}"));
+            return Convert.FromBase64String(response).Length == 32;
+        }
+        catch { return false; }
     }
 
     public bool IsPaired { get { lock (gate) return devices.Count > 0; } }
     public int DeviceCount { get { lock (gate) return devices.Count; } }
     public int NearbyRequestCount { get { lock (gate) { ExpireNearbyLocked(); return nearbyRequests.Count; } } }
     public bool IsPairingOpen { get { lock (gate) { ExpirePairingLocked(); return pairingExpiresAt > DateTimeOffset.UtcNow; } } }
-    public string PairingCode { get { lock (gate) { ExpirePairingLocked(); return pairingExpiresAt > DateTimeOffset.UtcNow ? pairingCode : ""; } } }
     public int PairingSecondsRemaining
     {
         get
@@ -573,6 +683,7 @@ sealed class SecurityState
                     request.DeviceId,
                     request.Name,
                     request.Address,
+                    request.VerificationCode,
                     request.RequestedAtUtc,
                     request.ExpiresAtUtc,
                     nearbyGrants.ContainsKey(request.RequestId)))
@@ -586,78 +697,73 @@ sealed class SecurityState
     {
         lock (gate)
         {
-            pairingCode = "";
             pairingExpiresAt = DateTimeOffset.MinValue;
+            nearbyRequests.Clear();
+            nearbyGrants.Clear();
+            pendingDevices.Clear();
             DeleteCodeFile();
         }
     }
 
-    public bool TryPair(string candidate, string requestedId, string requestedName, IPAddress? remoteAddress, out string encodedKey, out string assignedDeviceId)
+    public NearbyPairingResult TryNearbyPair(string requestedId, string requestedName, string requestToken, string pairingPublicKey, IPAddress? remoteAddress)
     {
-        lock (gate)
-        {
-            encodedKey = "";
-            assignedDeviceId = "";
-            ExpirePairingLocked();
-            if (pairingExpiresAt <= DateTimeOffset.UtcNow || candidate.Length != 6 ||
-                !CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(candidate), Encoding.ASCII.GetBytes(pairingCode))) return false;
-
-            var id = NormalizeDeviceId(requestedId);
-            if (id.Length == 0) id = Guid.NewGuid().ToString("N");
-            if (!devices.ContainsKey(id) && devices.Count >= MaximumDevices) return false;
-            var now = DateTimeOffset.UtcNow;
-            var key = RandomNumberGenerator.GetBytes(32);
-            var device = new PairedDevice(
-                id,
-                NormalizeDeviceName(requestedName),
-                key,
-                now,
-                now,
-                NormalizeAddress(remoteAddress));
-            devices[id] = device;
-            usedNonces.Clear();
-            SaveDevicesLocked();
-            encodedKey = Convert.ToBase64String(key);
-            assignedDeviceId = id;
-            return true;
-        }
-    }
-
-    public NearbyPairingStatus TryNearbyPair(string requestedId, string requestedName, string requestToken, string pairingPublicKey, IPAddress? remoteAddress, out string wrappedKey, out int expiresInSeconds)
-    {
-        wrappedKey = "";
-        expiresInSeconds = 0;
         var deviceId = NormalizeDeviceId(requestedId);
         var address = NormalizeAddress(remoteAddress);
         requestToken = requestToken.Trim();
         if (deviceId.Length == 0 || address.Length == 0 || requestToken.Length is < 32 or > 64 ||
-            requestToken.Any(ch => !char.IsAsciiLetterOrDigit(ch) && ch is not '-' and not '_')) return NearbyPairingStatus.Invalid;
-        if (!TryNormalizePairingPublicKey(pairingPublicKey, out var publicKey)) return NearbyPairingStatus.Invalid;
+            requestToken.Any(ch => !char.IsAsciiLetterOrDigit(ch) && ch is not '-' and not '_')) return NearbyPairingResult.Invalid();
+        if (!TryNormalizePairingPublicKey(pairingPublicKey, out var publicKey)) return NearbyPairingResult.Invalid();
 
-        var requestId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{deviceId}\n{requestToken}\n{Convert.ToBase64String(publicKey)}"))).ToLowerInvariant();
+        var requestId = PairingRequestId(deviceId, requestToken, publicKey);
+        var verificationCode = PairingVerificationCode(deviceId, requestToken, publicKey, pcPublicKey);
+        var encodedPcPublicKey = Convert.ToBase64String(pcPublicKey);
         lock (gate)
         {
+            ExpirePairingLocked();
             ExpireNearbyLocked();
             var now = DateTimeOffset.UtcNow;
+            if (pairingExpiresAt <= now) return NearbyPairingResult.Closed();
             if (nearbyGrants.TryGetValue(requestId, out var grant))
             {
                 if (!CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(grant.Address), Encoding.ASCII.GetBytes(address)))
-                    return NearbyPairingStatus.Invalid;
-                if (!devices.ContainsKey(deviceId) && devices.Count >= MaximumDevices) return NearbyPairingStatus.Capacity;
+                    return NearbyPairingResult.Invalid();
+                if (!devices.ContainsKey(deviceId) && devices.Count >= MaximumDevices) return NearbyPairingResult.Capacity();
 
-                devices[deviceId] = new PairedDevice(deviceId, grant.Name, grant.Key, now, now, address);
+                pendingDevices[deviceId] = new PendingPairedDevice(
+                    new PairedDevice(deviceId, grant.Name, grant.Key, now, now, address),
+                    now.AddSeconds(NearbyGrantSeconds));
                 foreach (var related in nearbyRequests.Values.Where(request => request.DeviceId == deviceId).Select(request => request.RequestId).ToArray())
                 {
                     nearbyRequests.Remove(related);
                     nearbyGrants.Remove(related);
                 }
                 usedNonces.Clear();
-                SaveDevicesLocked();
-                wrappedKey = Convert.ToBase64String(grant.WrappedKey);
-                return NearbyPairingStatus.Paired;
+                return new NearbyPairingResult(
+                    NearbyPairingStatus.Paired,
+                    Convert.ToBase64String(grant.WrappedKey),
+                    0,
+                    requestId,
+                    encodedPcPublicKey,
+                    verificationCode,
+                    Convert.ToBase64String(grant.PcSignature),
+                    grant.ExpiresAtUtc.ToUnixTimeSeconds());
             }
 
-            if (!nearbyRequests.ContainsKey(requestId) && nearbyRequests.Count >= MaximumNearbyRequests) return NearbyPairingStatus.Capacity;
+            foreach (var superseded in nearbyRequests.Values
+                .Where(request =>
+                    request.RequestId != requestId &&
+                    request.DeviceId == deviceId &&
+                    request.Address == address)
+                .Select(request => request.RequestId)
+                .ToArray())
+            {
+                nearbyRequests.Remove(superseded);
+                nearbyGrants.Remove(superseded);
+            }
+            if (!nearbyRequests.ContainsKey(requestId) &&
+                (nearbyRequests.Count >= MaximumNearbyRequests ||
+                 nearbyRequests.Values.Count(request => request.Address == address) >= MaximumNearbyRequestsPerAddress))
+                return NearbyPairingResult.Capacity();
             var existing = nearbyRequests.GetValueOrDefault(requestId);
             nearbyRequests[requestId] = new NearbyPairingRequest(
                 requestId,
@@ -665,10 +771,18 @@ sealed class SecurityState
                 NormalizeDeviceName(requestedName),
                 address,
                 publicKey,
+                verificationCode,
                 existing?.RequestedAtUtc ?? now,
                 now.AddSeconds(NearbyRequestSeconds));
-            expiresInSeconds = NearbyRequestSeconds;
-            return NearbyPairingStatus.Waiting;
+            return new NearbyPairingResult(
+                NearbyPairingStatus.Waiting,
+                "",
+                NearbyRequestSeconds,
+                requestId,
+                encodedPcPublicKey,
+                verificationCode,
+                "",
+                0);
         }
     }
 
@@ -680,6 +794,7 @@ sealed class SecurityState
             if (!nearbyRequests.TryGetValue(requestId, out var request)) return false;
             if (!devices.ContainsKey(request.DeviceId) && devices.Count >= MaximumDevices) return false;
             var expires = DateTimeOffset.UtcNow.AddSeconds(NearbyGrantSeconds);
+            if (pairingExpiresAt < expires) pairingExpiresAt = expires;
             var key = RandomNumberGenerator.GetBytes(32);
             byte[] encrypted;
             try
@@ -689,7 +804,9 @@ sealed class SecurityState
                 encrypted = rsa.Encrypt(key, RSAEncryptionPadding.OaepSHA256);
             }
             catch (CryptographicException) { return false; }
-            nearbyGrants[requestId] = new NearbyPairingGrant(requestId, request.DeviceId, request.Name, request.Address, key, encrypted, expires);
+            var grantPayload = PairingGrantPayload(requestId, encrypted, expires.ToUnixTimeSeconds());
+            var pcSignature = pcIdentity.SignData(grantPayload, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
+            nearbyGrants[requestId] = new NearbyPairingGrant(requestId, request.DeviceId, request.Name, request.Address, key, encrypted, pcSignature, expires);
             nearbyRequests[requestId] = request with { ExpiresAtUtc = expires };
             return true;
         }
@@ -699,7 +816,9 @@ sealed class SecurityState
     {
         lock (gate)
         {
-            if (!devices.Remove(deviceId)) return false;
+            var removed = devices.Remove(deviceId);
+            removed |= pendingDevices.Remove(deviceId);
+            if (!removed) return false;
             usedNonces.Clear();
             SaveDevicesLocked();
             return true;
@@ -711,6 +830,7 @@ sealed class SecurityState
         lock (gate)
         {
             devices.Clear();
+            pendingDevices.Clear();
             usedNonces.Clear();
             SaveDevicesLocked();
             DeleteLegacyMarker();
@@ -718,8 +838,9 @@ sealed class SecurityState
         }
     }
 
-    public bool Verify(HttpRequest request)
+    public bool TryVerify(HttpRequest request, out AuthenticatedRequest authentication)
     {
+        authentication = AuthenticatedRequest.Empty;
         if (!long.TryParse(request.Headers["X-MediaDeck-Time"], NumberStyles.None, CultureInfo.InvariantCulture, out var timestamp)) return false;
         if (Math.Abs(DateTimeOffset.UtcNow.ToUnixTimeSeconds() - timestamp) > 30) return false;
         var nonce = request.Headers["X-MediaDeck-Nonce"].ToString();
@@ -730,9 +851,16 @@ sealed class SecurityState
 
         var requestedId = NormalizeDeviceId(request.Headers["X-MediaDeck-Device"].ToString());
         PairedDevice? candidate;
+        var candidateIsPending = false;
         lock (gate)
         {
-            if (requestedId.Length > 0 && devices.TryGetValue(requestedId, out candidate)) { }
+            ExpireNearbyLocked();
+            if (requestedId.Length > 0 && pendingDevices.TryGetValue(requestedId, out var pending))
+            {
+                candidate = pending.Device;
+                candidateIsPending = true;
+            }
+            else if (requestedId.Length > 0 && devices.TryGetValue(requestedId, out candidate)) { }
             else devices.TryGetValue(LegacyDeviceId, out candidate);
             if (candidate is null) return false;
             candidate = candidate with { Key = candidate.Key.ToArray() };
@@ -746,7 +874,19 @@ sealed class SecurityState
 
         lock (gate)
         {
-            if (!devices.TryGetValue(candidate.Id, out var current)) return false;
+            PairedDevice current;
+            var newlyConfirmed = false;
+            if (candidateIsPending)
+            {
+                if (!pendingDevices.TryGetValue(candidate.Id, out var pending) ||
+                    !CryptographicOperations.FixedTimeEquals(candidate.Key, pending.Device.Key))
+                    return false;
+                current = pending.Device;
+                pendingDevices.Remove(candidate.Id);
+                devices[candidate.Id] = current;
+                newlyConfirmed = true;
+            }
+            else if (!devices.TryGetValue(candidate.Id, out current!)) return false;
             var migratedLegacy = false;
             if (candidate.Id == LegacyDeviceId && requestedId.Length > 0)
             {
@@ -762,7 +902,7 @@ sealed class SecurityState
             var now = DateTimeOffset.UtcNow;
             current = current with { LastSeenUtc = now, LastAddress = NormalizeAddress(request.HttpContext.Connection.RemoteIpAddress) };
             devices[current.Id] = current;
-            if (migratedLegacy || now - lastDeviceSave >= TimeSpan.FromMinutes(1)) SaveDevicesLocked();
+            if (newlyConfirmed || migratedLegacy || now - lastDeviceSave >= TimeSpan.FromMinutes(1)) SaveDevicesLocked();
         }
 
         if (usedNonces.Count > 1024)
@@ -770,7 +910,15 @@ sealed class SecurityState
             var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             foreach (var old in usedNonces.Where(pair => pair.Value < now).Select(pair => pair.Key)) usedNonces.TryRemove(old, out _);
         }
+        authentication = new AuthenticatedRequest(candidate.Id, candidate.Key, nonce);
         return true;
+    }
+
+    public static string SignResponse(AuthenticatedRequest authentication, int statusCode, string pathAndQuery, byte[] body)
+    {
+        var bodyHash = Convert.ToHexString(SHA256.HashData(body)).ToLowerInvariant();
+        var canonical = $"RESPONSE\n{statusCode}\n{pathAndQuery}\n{authentication.Nonce}\n{bodyHash}";
+        return Convert.ToBase64String(HMACSHA256.HashData(authentication.Key, Encoding.UTF8.GetBytes(canonical)));
     }
 
     private bool LoadDevices()
@@ -785,7 +933,9 @@ sealed class SecurityState
                 try
                 {
                     var id = NormalizeDeviceId(JsonText(item, "Id"));
-                    var key = Convert.FromBase64String(JsonText(item, "Key"));
+                    var storedKey = JsonText(item, "Key");
+                    if (!LocalSecretProtection.IsProtected(storedKey)) secretsNeedMigration = true;
+                    var key = LocalSecretProtection.Unprotect(storedKey);
                     if (id.Length == 0 || key.Length != 32 || devices.Count >= MaximumDevices) continue;
                     var name = JsonText(item, "Name");
                     var pairedAt = JsonDate(item, "PairedAtUtc", DateTimeOffset.UtcNow);
@@ -819,17 +969,20 @@ sealed class SecurityState
 
     private void StartPairingLocked(TimeSpan duration)
     {
-        pairingCode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString(CultureInfo.InvariantCulture);
         pairingExpiresAt = DateTimeOffset.UtcNow.Add(duration);
-        File.WriteAllText(codePath, pairingCode);
+        nearbyRequests.Clear();
+        nearbyGrants.Clear();
+        pendingDevices.Clear();
+        DeleteCodeFile();
     }
 
     private void ExpirePairingLocked()
     {
-        if (pairingExpiresAt <= DateTimeOffset.UtcNow && pairingCode.Length > 0)
+        if (pairingExpiresAt <= DateTimeOffset.UtcNow)
         {
-            pairingCode = "";
             pairingExpiresAt = DateTimeOffset.MinValue;
+            nearbyRequests.Clear();
+            nearbyGrants.Clear();
             DeleteCodeFile();
         }
     }
@@ -841,6 +994,8 @@ sealed class SecurityState
             nearbyRequests.Remove(requestId);
         foreach (var requestId in nearbyGrants.Where(pair => pair.Value.ExpiresAtUtc <= now).Select(pair => pair.Key).ToArray())
             nearbyGrants.Remove(requestId);
+        foreach (var deviceId in pendingDevices.Where(pair => pair.Value.ExpiresAtUtc <= now).Select(pair => pair.Key).ToArray())
+            pendingDevices.Remove(deviceId);
     }
 
     private void SaveDevicesLocked()
@@ -850,7 +1005,7 @@ sealed class SecurityState
             var stored = devices.Values.Select(device => new StoredDevice(
                 device.Id,
                 device.Name,
-                Convert.ToBase64String(device.Key),
+                LocalSecretProtection.Protect(device.Key),
                 device.PairedAtUtc,
                 device.LastSeenUtc,
                 device.LastAddress)).ToArray();
@@ -892,6 +1047,56 @@ sealed class SecurityState
         catch (Exception error) when (error is FormatException or CryptographicException) { return false; }
     }
 
+    private RSA LoadOrCreatePcIdentity()
+    {
+        if (File.Exists(identityPath))
+        {
+            try
+            {
+                var privateKey = LocalSecretProtection.Unprotect(File.ReadAllText(identityPath).Trim());
+                RSA? existing = null;
+                try
+                {
+                    existing = RSA.Create();
+                    existing.ImportPkcs8PrivateKey(privateKey, out var consumed);
+                    if (consumed > 0 && existing.KeySize >= 2048)
+                    {
+                        var result = existing;
+                        existing = null;
+                        return result;
+                    }
+                }
+                finally
+                {
+                    existing?.Dispose();
+                    CryptographicOperations.ZeroMemory(privateKey);
+                }
+            }
+            catch { }
+        }
+
+        var created = RSA.Create(3072);
+        var exported = created.ExportPkcs8PrivateKey();
+        try { File.WriteAllText(identityPath, LocalSecretProtection.Protect(exported)); }
+        finally { CryptographicOperations.ZeroMemory(exported); }
+        return created;
+    }
+
+    private static string PairingRequestId(string deviceId, string requestToken, byte[] publicKey) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"{deviceId}\n{requestToken}\n{Convert.ToBase64String(publicKey)}"))).ToLowerInvariant();
+
+    private static string PairingVerificationCode(string deviceId, string requestToken, byte[] phonePublicKey, byte[] serverPublicKey)
+    {
+        var transcript = Encoding.UTF8.GetBytes(
+            $"MASHR-PAIR-V2\n{deviceId}\n{requestToken}\n{Convert.ToBase64String(phonePublicKey)}\n{Convert.ToBase64String(serverPublicKey)}");
+        var value = BinaryPrimitives.ReadUInt32BigEndian(SHA256.HashData(transcript)) % 1_000_000;
+        return value.ToString("D6", CultureInfo.InvariantCulture);
+    }
+
+    private static byte[] PairingGrantPayload(string requestId, byte[] wrappedKey, long expiresUnix) =>
+        Encoding.UTF8.GetBytes($"MASHR-PAIR-GRANT-V2\n{requestId}\n{Convert.ToBase64String(wrappedKey)}\n{expiresUnix}");
+
     private static string NormalizeAddress(IPAddress? address)
     {
         if (address?.IsIPv4MappedToIPv6 == true) address = address.MapToIPv4();
@@ -919,17 +1124,62 @@ sealed class SecurityState
     private void DeleteLegacyMarker()
     {
         try { if (File.Exists(legacyPairedPath)) File.Delete(legacyPairedPath); } catch { }
+        try { if (File.Exists(legacyKeyPath)) File.Delete(legacyKeyPath); } catch { }
     }
 
     private sealed record PairedDevice(string Id, string Name, byte[] Key, DateTimeOffset PairedAtUtc, DateTimeOffset LastSeenUtc, string LastAddress);
+    private sealed record PendingPairedDevice(PairedDevice Device, DateTimeOffset ExpiresAtUtc);
     private sealed record StoredDevice(string Id, string Name, string Key, DateTimeOffset PairedAtUtc, DateTimeOffset LastSeenUtc, string? LastAddress);
-    private sealed record NearbyPairingRequest(string RequestId, string DeviceId, string Name, string Address, byte[] PairingPublicKey, DateTimeOffset RequestedAtUtc, DateTimeOffset ExpiresAtUtc);
-    private sealed record NearbyPairingGrant(string RequestId, string DeviceId, string Name, string Address, byte[] Key, byte[] WrappedKey, DateTimeOffset ExpiresAtUtc);
+    private sealed record NearbyPairingRequest(string RequestId, string DeviceId, string Name, string Address, byte[] PairingPublicKey, string VerificationCode, DateTimeOffset RequestedAtUtc, DateTimeOffset ExpiresAtUtc);
+    private sealed record NearbyPairingGrant(string RequestId, string DeviceId, string Name, string Address, byte[] Key, byte[] WrappedKey, byte[] PcSignature, DateTimeOffset ExpiresAtUtc);
+}
+
+sealed record AuthenticatedRequest(string DeviceId, byte[] Key, string Nonce)
+{
+    public static AuthenticatedRequest Empty { get; } = new("", [], "");
 }
 
 sealed record PairedDeviceView(string Id, string Name, string Address, DateTimeOffset PairedAtUtc, DateTimeOffset LastSeenUtc, bool Online, bool Legacy);
-sealed record NearbyDeviceView(string RequestId, string DeviceId, string Name, string Address, DateTimeOffset RequestedAtUtc, DateTimeOffset ExpiresAtUtc, bool Approved);
-enum NearbyPairingStatus { Invalid, Waiting, Paired, Capacity }
+sealed record NearbyDeviceView(string RequestId, string DeviceId, string Name, string Address, string VerificationCode, DateTimeOffset RequestedAtUtc, DateTimeOffset ExpiresAtUtc, bool Approved);
+sealed record NearbyPairingResult(
+    NearbyPairingStatus Status,
+    string WrappedKey,
+    int ExpiresInSeconds,
+    string RequestId,
+    string PcPublicKey,
+    string VerificationCode,
+    string PcSignature,
+    long GrantExpiresUnix)
+{
+    public static NearbyPairingResult Invalid() => new(NearbyPairingStatus.Invalid, "", 0, "", "", "", "", 0);
+    public static NearbyPairingResult Closed() => new(NearbyPairingStatus.Closed, "", 0, "", "", "", "", 0);
+    public static NearbyPairingResult Capacity() => new(NearbyPairingStatus.Capacity, "", 0, "", "", "", "", 0);
+}
+enum NearbyPairingStatus { Invalid, Closed, Waiting, Paired, Capacity }
+
+static class LocalSecretProtection
+{
+    private const string Prefix = "dpapi:";
+    private static readonly byte[] Entropy = SHA256.HashData(Encoding.UTF8.GetBytes("MASHR Media Deck local secrets v1"));
+
+    public static bool IsProtected(string stored) => stored.StartsWith(Prefix, StringComparison.Ordinal);
+
+    public static string Protect(byte[] secret)
+    {
+        var protectedBytes = ProtectedData.Protect(secret, Entropy, DataProtectionScope.CurrentUser);
+        try { return Prefix + Convert.ToBase64String(protectedBytes); }
+        finally { CryptographicOperations.ZeroMemory(protectedBytes); }
+    }
+
+    public static byte[] Unprotect(string stored)
+    {
+        if (!stored.StartsWith(Prefix, StringComparison.Ordinal))
+            return Convert.FromBase64String(stored);
+        var protectedBytes = Convert.FromBase64String(stored[Prefix.Length..]);
+        try { return ProtectedData.Unprotect(protectedBytes, Entropy, DataProtectionScope.CurrentUser); }
+        finally { CryptographicOperations.ZeroMemory(protectedBytes); }
+    }
+}
 
 static class NetworkPolicy
 {
@@ -942,19 +1192,54 @@ static class NetworkPolicy
 
 }
 
-sealed record LanAccessPolicy(string Mode, IPAddress? PhoneAddress, IPAddress? LocalAddress, int PrefixLength)
+sealed record LanRoute(IPAddress PhoneAddress, IPAddress LocalAddress, int PrefixLength);
+
+sealed record LanAccessPolicy(string Mode, IReadOnlyList<LanRoute> Routes)
 {
     private static readonly string DirectoryPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MediaDeck");
     private static readonly string ConfigPath = Path.Combine(DirectoryPath, "lan-access.json");
-    public bool IsEnabled => Mode is "paired-phone" or "same-subnet" && PhoneAddress is not null && LocalAddress is not null;
+    public bool IsEnabled => (Mode is "paired-phone" or "same-subnet") && Routes.Count > 0;
+    public IReadOnlyList<IPAddress> LocalAddresses => Routes.Select(route => route.LocalAddress).Distinct().ToArray();
     public string Display => Mode switch
     {
-        "paired-phone" => $"paired phone {PhoneAddress}",
+        "paired-phone" => $"{Routes.Count} allowed phone IP{(Routes.Count == 1 ? "" : "s")} via {string.Join(", ", LocalAddresses)}",
         "same-subnet" => $"subnet {NetworkCidr}",
         _ => "loopback only"
     };
-    public string NetworkCidr => LocalAddress is null ? "" : $"{NetworkAddress(LocalAddress, PrefixLength)}/{PrefixLength}";
-    public IPAddress? BroadcastAddress => LocalAddress is null ? null : SubnetBroadcastAddress(LocalAddress, PrefixLength);
+    public string NetworkCidr => Routes.Count == 0 ? "" : $"{NetworkAddress(Routes[0].LocalAddress, Routes[0].PrefixLength)}/{Routes[0].PrefixLength}";
+    public IReadOnlyList<IPAddress> BroadcastAddresses => Routes
+        .Select(route => SubnetBroadcastAddress(route.LocalAddress, route.PrefixLength))
+        .Distinct()
+        .ToArray();
+
+    public string BindingUrls(int port) => string.Join(";",
+        new[] { IPAddress.Loopback }.Concat(LocalAddresses).Select(address => $"http://{address}:{port}"));
+
+    public static bool RunSelfTest()
+    {
+        var firstPhone = IPAddress.Parse("192.168.0.107");
+        var secondPhone = IPAddress.Parse("192.168.10.183");
+        var paired = new LanAccessPolicy("paired-phone",
+        [
+            new LanRoute(firstPhone, IPAddress.Parse("192.168.0.103"), 24),
+            new LanRoute(secondPhone, IPAddress.Parse("192.168.0.103"), 24)
+        ]);
+        var subnet = new LanAccessPolicy("same-subnet",
+        [
+            new LanRoute(firstPhone, IPAddress.Parse("192.168.0.103"), 24)
+        ]);
+        return paired.IsEnabled &&
+            paired.LocalAddresses.Count == 1 &&
+            paired.Allows(firstPhone) &&
+            paired.Allows(secondPhone) &&
+            !paired.Allows(IPAddress.Parse("192.168.0.108")) &&
+            paired.BindingUrls(43821) == "http://127.0.0.1:43821;http://192.168.0.103:43821" &&
+            subnet.Allows(IPAddress.Parse("192.168.0.200")) &&
+            !subnet.Allows(IPAddress.Parse("192.168.1.1")) &&
+            IsPrivateLanAddress(IPAddress.Parse("10.1.2.3")) &&
+            IsPrivateLanAddress(IPAddress.Parse("172.31.255.254")) &&
+            !IsPrivateLanAddress(IPAddress.Parse("8.8.8.8"));
+    }
 
     public bool Allows(IPAddress? remote)
     {
@@ -963,8 +1248,8 @@ sealed record LanAccessPolicy(string Mode, IPAddress? PhoneAddress, IPAddress? L
         if (IPAddress.IsLoopback(remote)) return true;
         if (!IsEnabled || remote.AddressFamily != AddressFamily.InterNetwork) return false;
         return Mode == "paired-phone"
-            ? remote.Equals(PhoneAddress)
-            : SameSubnet(LocalAddress!, remote, PrefixLength);
+            ? Routes.Any(route => remote.Equals(route.PhoneAddress))
+            : SameSubnet(Routes[0].LocalAddress, remote, Routes[0].PrefixLength);
     }
 
     public static LanAccessPolicy Load()
@@ -975,10 +1260,42 @@ sealed record LanAccessPolicy(string Mode, IPAddress? PhoneAddress, IPAddress? L
             using var document = JsonDocument.Parse(File.ReadAllText(ConfigPath));
             var root = document.RootElement;
             var mode = root.GetProperty("mode").GetString() ?? "";
-            var phoneText = root.GetProperty("phoneAddress").GetString() ?? "";
-            if (mode is not ("paired-phone" or "same-subnet") || !IPAddress.TryParse(phoneText, out var phone) || phone.AddressFamily != AddressFamily.InterNetwork) return Disabled();
-            var connection = FindConnection(phone);
-            return connection is null ? Disabled() : new(mode, phone, connection.Value.Address, connection.Value.PrefixLength);
+            if (!root.TryGetProperty("scopedRouteValidated", out var routeValidated) || routeValidated.ValueKind != JsonValueKind.True)
+                return Disabled();
+            if (mode is not ("paired-phone" or "same-subnet")) return Disabled();
+
+            var configuredRoutes = new List<(string Phone, string Local)>();
+            if (root.TryGetProperty("routes", out var routesNode) && routesNode.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var routeNode in routesNode.EnumerateArray())
+                    configuredRoutes.Add((
+                        routeNode.TryGetProperty("phoneAddress", out var phoneNode) ? phoneNode.GetString() ?? "" : "",
+                        routeNode.TryGetProperty("localAddress", out var localNode) ? localNode.GetString() ?? "" : ""));
+            }
+            else
+            {
+                configuredRoutes.Add((
+                    root.TryGetProperty("phoneAddress", out var phoneNode) ? phoneNode.GetString() ?? "" : "",
+                    root.TryGetProperty("localAddress", out var localNode) ? localNode.GetString() ?? "" : ""));
+            }
+
+            if (configuredRoutes.Count is < 1 or > 16 || mode == "same-subnet" && configuredRoutes.Count != 1)
+                return Disabled();
+            var routes = new List<LanRoute>(configuredRoutes.Count);
+            foreach (var configured in configuredRoutes)
+            {
+                if (!IPAddress.TryParse(configured.Phone, out var phone) ||
+                    !IPAddress.TryParse(configured.Local, out var configuredLocal) ||
+                    phone.AddressFamily != AddressFamily.InterNetwork ||
+                    configuredLocal.AddressFamily != AddressFamily.InterNetwork ||
+                    !IsPrivateLanAddress(phone) ||
+                    !IsPrivateLanAddress(configuredLocal) ||
+                    routes.Any(route => route.PhoneAddress.Equals(phone))) return Disabled();
+                var connection = FindConnection(phone, mode == "same-subnet");
+                if (connection is null || !connection.Value.Address.Equals(configuredLocal)) return Disabled();
+                routes.Add(new LanRoute(phone, connection.Value.Address, connection.Value.PrefixLength));
+            }
+            return new(mode, routes);
         }
         catch { return Disabled(); }
     }
@@ -986,10 +1303,36 @@ sealed record LanAccessPolicy(string Mode, IPAddress? PhoneAddress, IPAddress? L
     public static void Configure(string mode, string phoneText)
     {
         if (mode is not ("paired-phone" or "same-subnet")) throw new ArgumentException("Unsupported LAN mode.");
-        if (!IPAddress.TryParse(phoneText, out var phone) || phone.AddressFamily != AddressFamily.InterNetwork) throw new ArgumentException("A valid IPv4 phone address is required.");
-        if (FindConnection(phone) is null) throw new ArgumentException("The phone is not on a directly connected PC subnet.");
+        var phoneTexts = phoneText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (phoneTexts.Length is < 1 or > 16 || mode == "same-subnet" && phoneTexts.Length != 1)
+            throw new ArgumentException("Provide one to sixteen exact phone addresses; same-subnet mode accepts one.");
+        var routes = new List<LanRoute>(phoneTexts.Length);
+        foreach (var item in phoneTexts)
+        {
+            if (!IPAddress.TryParse(item, out var phone) ||
+                phone.AddressFamily != AddressFamily.InterNetwork ||
+                !IsPrivateLanAddress(phone) ||
+                routes.Any(route => route.PhoneAddress.Equals(phone)))
+                throw new ArgumentException("Each phone must have a unique private IPv4 LAN address.");
+            var connection = FindConnection(phone, mode == "same-subnet");
+            if (connection is null)
+                throw new ArgumentException(mode == "same-subnet"
+                    ? "The phone is not on a directly connected PC subnet."
+                    : $"Windows has no usable IPv4 route to phone {phone}.");
+            routes.Add(new LanRoute(phone, connection.Value.Address, connection.Value.PrefixLength));
+        }
         Directory.CreateDirectory(DirectoryPath);
-        File.WriteAllText(ConfigPath, JsonSerializer.Serialize(new { mode, phoneAddress = phone.ToString() }));
+        File.WriteAllText(ConfigPath, JsonSerializer.Serialize(new
+        {
+            mode,
+            phoneAddresses = routes.Select(route => route.PhoneAddress.ToString()).ToArray(),
+            routes = routes.Select(route => new
+            {
+                phoneAddress = route.PhoneAddress.ToString(),
+                localAddress = route.LocalAddress.ToString()
+            }).ToArray(),
+            scopedRouteValidated = true
+        }));
     }
 
     public static void Disable()
@@ -997,18 +1340,40 @@ sealed record LanAccessPolicy(string Mode, IPAddress? PhoneAddress, IPAddress? L
         try { if (File.Exists(ConfigPath)) File.Delete(ConfigPath); } catch { }
     }
 
-    private static LanAccessPolicy Disabled() => new("loopback", null, null, 0);
+    private static LanAccessPolicy Disabled() => new("loopback", []);
 
-    private static (IPAddress Address, int PrefixLength)? FindConnection(IPAddress phone)
+    private static (IPAddress Address, int PrefixLength)? FindConnection(IPAddress phone, bool requireDirectSubnet)
     {
-        foreach (var adapter in NetworkInterface.GetAllNetworkInterfaces().Where(item => item.OperationalStatus == OperationalStatus.Up && item.NetworkInterfaceType != NetworkInterfaceType.Loopback))
+        var candidates = NetworkInterface.GetAllNetworkInterfaces()
+            .Where(item => item.OperationalStatus == OperationalStatus.Up && item.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+            .SelectMany(adapter => adapter.GetIPProperties().UnicastAddresses)
+            .Where(item => item.Address.AddressFamily == AddressFamily.InterNetwork && IsPrivateLanAddress(item.Address))
+            .ToArray();
+        foreach (var unicast in candidates)
         {
-            foreach (var unicast in adapter.GetIPProperties().UnicastAddresses.Where(item => item.Address.AddressFamily == AddressFamily.InterNetwork))
-            {
-                if (SameSubnet(unicast.Address, phone, unicast.PrefixLength)) return (unicast.Address, unicast.PrefixLength);
-            }
+            if (SameSubnet(unicast.Address, phone, unicast.PrefixLength))
+                return (unicast.Address, unicast.PrefixLength);
         }
-        return null;
+        if (requireDirectSubnet) return null;
+        try
+        {
+            using var routeProbe = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            routeProbe.Connect(new IPEndPoint(phone, 9));
+            var routedLocal = (routeProbe.LocalEndPoint as IPEndPoint)?.Address;
+            if (routedLocal is null || IPAddress.IsLoopback(routedLocal)) return null;
+            var selected = candidates.FirstOrDefault(item => item.Address.Equals(routedLocal));
+            return selected is null ? null : (selected.Address, selected.PrefixLength);
+        }
+        catch (SocketException) { return null; }
+    }
+
+    private static bool IsPrivateLanAddress(IPAddress address)
+    {
+        var bytes = address.GetAddressBytes();
+        return bytes.Length == 4 &&
+            (bytes[0] == 10 ||
+             (bytes[0] == 172 && bytes[1] is >= 16 and <= 31) ||
+             (bytes[0] == 192 && bytes[1] == 168));
     }
 
     private static bool SameSubnet(IPAddress left, IPAddress right, int prefixLength)
@@ -1889,7 +2254,6 @@ static class TrayApplication
             var openItem = menu.Items.Add("Open Media Deck", null, (_, _) => ShowDashboard());
             openItem.Font = new Font(openItem.Font, FontStyle.Bold);
             menu.Items.Add("Start pairing mode (2 min)", null, (_, _) => StartPairing());
-            menu.Items.Add("Copy pairing code", null, (_, _) => CopyPairingCode());
             menu.Items.Add("Manage paired devices", null, (_, _) => ShowDashboard());
             menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
             menu.Items.Add("Exit MASHR Media Deck", null, (_, _) => Exit());
@@ -1919,16 +2283,9 @@ static class TrayApplication
             security.StartPairing();
             dashboard.BringUp();
             icon.BalloonTipTitle = "Pairing mode is open";
-            icon.BalloonTipText = $"Enter {security.PairingCode} on each phone within two minutes.";
+            icon.BalloonTipText = "Open the app on a phone, then compare the six-digit MATCH code before approving it.";
             icon.BalloonTipIcon = System.Windows.Forms.ToolTipIcon.Info;
             icon.ShowBalloonTip(5000);
-        }
-
-        private void CopyPairingCode()
-        {
-            if (!security.IsPairingOpen) { StartPairing(); return; }
-            try { System.Windows.Forms.Clipboard.SetText(security.PairingCode); } catch { }
-            ShowDashboard();
         }
 
         private void RefreshTrayStatus()
@@ -1966,6 +2323,7 @@ static class TrayApplication
         private readonly System.Windows.Forms.Label codeLabel;
         private readonly System.Windows.Forms.Label timerLabel;
         private readonly System.Windows.Forms.Label networkLabel;
+        private readonly System.Windows.Forms.Label nextActionLabel;
         private readonly System.Windows.Forms.Label nearbyHint;
         private readonly System.Windows.Forms.Label deviceHeading;
         private readonly System.Windows.Forms.ComboBox nearbyList;
@@ -1973,8 +2331,8 @@ static class TrayApplication
         private readonly System.Windows.Forms.Button approveNearbyButton;
         private readonly System.Windows.Forms.Button startButton;
         private readonly System.Windows.Forms.Button stopButton;
-        private readonly System.Windows.Forms.Button copyButton;
         private readonly System.Windows.Forms.Button revokeButton;
+        private readonly System.Windows.Forms.Button forgetButton;
         private readonly System.Windows.Forms.Timer refreshTimer;
         private bool canClose;
 
@@ -2032,12 +2390,14 @@ static class TrayApplication
                 BackColor = Card,
                 Padding = new System.Windows.Forms.Padding(22, 15, 22, 15)
             };
-            var nearbyHeading = new System.Windows.Forms.Label
+            nextActionLabel = new System.Windows.Forms.Label
             {
-                Text = "NEARBY CONTROLLERS  •  OPEN THE APP ON A PHONE",
-                AutoSize = true,
+                Text = "STEP 1 OF 4  •  START A TWO-MINUTE PAIRING WINDOW",
+                AutoSize = false,
+                Width = 776,
+                Height = 26,
                 Font = new Font("Segoe UI", 11f, FontStyle.Bold),
-                ForeColor = Ink,
+                ForeColor = Gold,
                 Location = new Point(22, 13)
             };
             nearbyList = new System.Windows.Forms.ComboBox
@@ -2052,14 +2412,16 @@ static class TrayApplication
                 Font = new Font("Segoe UI", 11f, FontStyle.Bold)
             };
             nearbyList.SelectedIndexChanged += (_, _) => RefreshNearbyMessage();
-            approveNearbyButton = DeckButton("PAIR THIS DEVICE", Green, Color.FromArgb(7, 35, 18), 270);
+            approveNearbyButton = DeckButton("4  •  VERIFY THEN PAIR", CardRaised, Muted, 270);
             approveNearbyButton.Location = new Point(528, 36);
             approveNearbyButton.Enabled = false;
             approveNearbyButton.Click += (_, _) => PairNearby();
             nearbyHint = new System.Windows.Forms.Label
             {
                 Text = "No unpaired phones seen yet. Open MASHR Media Deck on the phone.",
-                AutoSize = true,
+                AutoSize = false,
+                Width = 770,
+                Height = 38,
                 Font = new Font("Segoe UI", 9.5f),
                 ForeColor = Muted,
                 Location = new Point(24, 87)
@@ -2072,7 +2434,7 @@ static class TrayApplication
             };
             modeLabel = new System.Windows.Forms.Label
             {
-                Text = "FALLBACK CODE CLOSED",
+                Text = "NEARBY PAIRING CLOSED",
                 AutoSize = true,
                 Font = new Font("Segoe UI", 11f, FontStyle.Bold),
                 ForeColor = Purple,
@@ -2088,30 +2450,27 @@ static class TrayApplication
             };
             timerLabel = new System.Windows.Forms.Label
             {
-                Text = "Only needed if nearby discovery is unavailable.",
+                Text = "Open a two-minute window before adding controllers.",
                 AutoSize = true,
                 Font = new Font("Segoe UI", 10f),
                 ForeColor = Muted,
                 Location = new Point(24, 207)
             };
-            startButton = DeckButton("START CODE MODE", Purple, Color.FromArgb(19, 13, 35), 154);
-            startButton.Location = new Point(420, 136);
+            startButton = DeckButton("START 2-MIN PAIRING", Purple, Color.FromArgb(19, 13, 35), 190);
+            startButton.Location = new Point(390, 136);
             startButton.Click += (_, _) => { security.StartPairing(); RefreshState(); };
-            copyButton = DeckButton("COPY CODE", CardRaised, Ink, 132);
-            copyButton.Location = new Point(584, 136);
-            copyButton.Click += (_, _) => CopyCode();
-            stopButton = DeckButton("STOP", Color.FromArgb(92, 45, 45), Ink, 132);
-            stopButton.Location = new Point(584, 192);
+            stopButton = DeckButton("CLOSE WINDOW", Color.FromArgb(92, 45, 45), Ink, 132);
+            stopButton.Location = new Point(590, 136);
             stopButton.Click += (_, _) => { security.StopPairing(); RefreshState(); };
             var howLabel = new System.Windows.Forms.Label
             {
-                Text = "FALLBACK: PC SETTINGS ON PHONE  →  ENTER THIS CODE  →  PAIR",
+                Text = "1  START WINDOW   →   2  OPEN PHONE APP   →   3  COMPARE MATCH   →   4  VERIFY & PAIR",
                 AutoSize = true,
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
                 ForeColor = Purple,
                 Location = new Point(24, 240)
             };
-            pairingCard.Controls.AddRange([nearbyHeading, nearbyList, approveNearbyButton, nearbyHint, divider, modeLabel, codeLabel, timerLabel, startButton, copyButton, stopButton, howLabel]);
+            pairingCard.Controls.AddRange([nextActionLabel, nearbyList, approveNearbyButton, nearbyHint, divider, modeLabel, codeLabel, timerLabel, startButton, stopButton, howLabel]);
 
             var devicePanel = new System.Windows.Forms.Panel { Dock = System.Windows.Forms.DockStyle.Fill, Padding = new System.Windows.Forms.Padding(22, 18, 22, 12) };
             deviceHeading = new System.Windows.Forms.Label
@@ -2151,7 +2510,8 @@ static class TrayApplication
             revokeButton.Enabled = false;
             revokeButton.Click += (_, _) => RevokeSelected();
             deviceList.SelectedIndexChanged += (_, _) => revokeButton.Enabled = deviceList.SelectedItems.Count == 1;
-            var forgetButton = DeckButton("FORGET ALL", CardRaised, Ink, 136);
+            forgetButton = DeckButton("RESET ALL PAIRINGS", CardRaised, Ink, 158);
+            forgetButton.Enabled = false;
             forgetButton.Click += (_, _) => ForgetAll();
             var hideButton = DeckButton("HIDE TO TRAY", CardRaised, Ink, 140);
             hideButton.Click += (_, _) => Hide();
@@ -2189,14 +2549,16 @@ static class TrayApplication
         {
             var open = security.IsPairingOpen;
             var seconds = security.PairingSecondsRemaining;
-            modeLabel.Text = open ? "FALLBACK CODE OPEN" : "FALLBACK CODE CLOSED";
+            modeLabel.Text = open ? "PAIRING WINDOW OPEN" : "PAIRING WINDOW CLOSED";
             modeLabel.ForeColor = open ? Gold : Purple;
-            codeLabel.Text = open ? FormatCode(security.PairingCode) : "— — —";
+            codeLabel.Text = "— — —";
             timerLabel.Text = open
-                ? $"Open for {seconds / 60}:{seconds % 60:00}. You can pair several phones during this window."
-                : "Only needed if nearby discovery is unavailable.";
+                ? $"Window closes in {seconds / 60}:{seconds % 60:00}. No phone gets control until you verify and approve it."
+                : "Window is closed. Existing paired controllers keep working.";
+            startButton.Text = open ? "RESTART 2-MIN WINDOW" : "START 2-MIN PAIRING";
+            stopButton.Enabled = open;
             networkLabel.Text = lanAccess.IsEnabled
-                ? $"LAN GATE  •  {lanAccess.Display.ToUpperInvariant()}\nSIGNED COMMANDS ONLY"
+                ? $"LAN ACCESS  •  EXACT ALLOWLIST: {lanAccess.Routes.Count} PHONE IP{(lanAccess.Routes.Count == 1 ? "" : "s")}\nALLOWED ≠ PAIRED  •  SIGNED COMMANDS ONLY"
                 : "LAN ACCESS OFF\nLOOPBACK ONLY";
             networkLabel.ForeColor = lanAccess.IsEnabled ? Green : Color.FromArgb(248, 113, 113);
             RefreshNearby();
@@ -2209,10 +2571,17 @@ static class TrayApplication
             var snapshot = security.SnapshotNearby();
             nearbyList.BeginUpdate();
             nearbyList.Items.Clear();
-            foreach (var request in snapshot)
-                nearbyList.Items.Add(new NearbyChoice(request.RequestId, request.Name, request.Address, request.ExpiresAtUtc, request.Approved));
-            if (nearbyList.Items.Count > 0)
+            if (snapshot.Count == 0)
             {
+                nearbyList.Items.Add(security.IsPairingOpen
+                    ? "Waiting for a phone to request pairing..."
+                    : "No pairing request — start the two-minute window first");
+                nearbyList.SelectedIndex = 0;
+            }
+            else
+            {
+                foreach (var request in snapshot)
+                    nearbyList.Items.Add(new NearbyChoice(request.RequestId, request.Name, request.Address, request.VerificationCode, request.ExpiresAtUtc, request.Approved));
                 var selectedIndex = 0;
                 if (selected is not null)
                     for (var index = 0; index < nearbyList.Items.Count; index++)
@@ -2220,7 +2589,7 @@ static class TrayApplication
                 nearbyList.SelectedIndex = selectedIndex;
             }
             nearbyList.EndUpdate();
-            nearbyList.Enabled = nearbyList.Items.Count > 0;
+            nearbyList.Enabled = snapshot.Count > 0;
             RefreshNearbyMessage();
         }
 
@@ -2230,18 +2599,48 @@ static class TrayApplication
             approveNearbyButton.Enabled = selected is not null && !selected.Approved;
             if (selected is null)
             {
-                nearbyHint.Text = "No unpaired phones seen yet. Open MASHR Media Deck on the phone.";
+                codeLabel.Text = "— — —";
+                approveNearbyButton.Text = "4  •  VERIFY THEN PAIR";
+                approveNearbyButton.BackColor = CardRaised;
+                approveNearbyButton.ForeColor = Muted;
+                if (security.IsPairingOpen)
+                {
+                    nextActionLabel.Text = "STEP 2 OF 4  •  OPEN MASHR MEDIA DECK ON YOUR PHONE";
+                    nextActionLabel.ForeColor = Gold;
+                    modeLabel.Text = "WAITING FOR A PHONE REQUEST";
+                    nearbyHint.Text = "Keep this PC window open. An allowed phone will appear here automatically.";
+                }
+                else
+                {
+                    nextActionLabel.Text = "STEP 1 OF 4  •  START A TWO-MINUTE PAIRING WINDOW";
+                    nextActionLabel.ForeColor = Purple;
+                    modeLabel.Text = "PAIRING WINDOW CLOSED";
+                    nearbyHint.Text = "Starting the window lets an allowed phone ask to pair; it does not grant control.";
+                }
                 nearbyHint.ForeColor = Muted;
                 return;
             }
+            codeLabel.Text = FormatCode(selected.VerificationCode);
             if (selected.Approved)
             {
                 var remaining = Math.Max(0, (int)Math.Ceiling((selected.ExpiresAtUtc - DateTimeOffset.UtcNow).TotalSeconds));
-                nearbyHint.Text = $"Approved for {remaining}s. Waiting for that exact phone and IP to collect its one-use key...";
+                nextActionLabel.Text = "STEP 4 OF 4  •  APPROVED — KEEP THE PHONE APP OPEN";
+                nextActionLabel.ForeColor = Gold;
+                modeLabel.Text = "DELIVERING ONE-USE ENCRYPTED KEY";
+                approveNearbyButton.Text = "APPROVED  •  WAITING";
+                approveNearbyButton.BackColor = CardRaised;
+                approveNearbyButton.ForeColor = Gold;
+                nearbyHint.Text = $"Approved for {remaining}s. Waiting for {selected.Name} at {selected.Address} to collect its key.";
                 nearbyHint.ForeColor = Gold;
                 return;
             }
-            nearbyHint.Text = $"{selected.Name} at {selected.Address} is asking. Confirm it is yours, then click once.";
+            nextActionLabel.Text = "STEP 3 OF 4  •  VERIFY THIS PHONE, ADDRESS AND MATCH CODE";
+            nextActionLabel.ForeColor = Green;
+            modeLabel.Text = "MATCH CODE  •  MUST BE IDENTICAL ON BOTH SCREENS";
+            approveNearbyButton.Text = "4  •  VERIFY THEN PAIR";
+            approveNearbyButton.BackColor = Green;
+            approveNearbyButton.ForeColor = Color.FromArgb(7, 35, 18);
+            nearbyHint.Text = $"{selected.Name} at {selected.Address}: check MATCH {FormatCode(selected.VerificationCode)} on the phone. If any digit differs, do not pair.";
             nearbyHint.ForeColor = Green;
         }
 
@@ -2256,7 +2655,9 @@ static class TrayApplication
         {
             var selected = deviceList.SelectedItems.Count == 1 ? deviceList.SelectedItems[0].Tag as string : null;
             var snapshot = security.Snapshot();
-            deviceHeading.Text = $"PAIRED CONTROLLERS  •  {snapshot.Count}";
+            deviceHeading.Text = snapshot.Count == 0
+                ? "PAIRED CONTROLLERS  •  0  —  NO PHONE HAS CONTROL YET"
+                : $"PAIRED CONTROLLERS  •  {snapshot.Count}";
             deviceList.BeginUpdate();
             deviceList.Items.Clear();
             foreach (var device in snapshot)
@@ -2272,13 +2673,7 @@ static class TrayApplication
             }
             deviceList.EndUpdate();
             revokeButton.Enabled = deviceList.SelectedItems.Count == 1;
-        }
-
-        private void CopyCode()
-        {
-            if (!security.IsPairingOpen) return;
-            try { System.Windows.Forms.Clipboard.SetText(security.PairingCode); } catch { }
-            timerLabel.Text = "Code copied. Enter it on any phone while pairing mode stays open.";
+            forgetButton.Enabled = snapshot.Count > 0;
         }
 
         private void RevokeSelected()
@@ -2344,9 +2739,9 @@ static class TrayApplication
             };
         }
 
-        private sealed record NearbyChoice(string RequestId, string Name, string Address, DateTimeOffset ExpiresAtUtc, bool Approved)
+        private sealed record NearbyChoice(string RequestId, string Name, string Address, string VerificationCode, DateTimeOffset ExpiresAtUtc, bool Approved)
         {
-            public override string ToString() => $"{Name}  •  {Address}{(Approved ? "  •  APPROVED" : "")}";
+            public override string ToString() => $"{Name}  •  {Address}  •  MATCH {FormatCode(VerificationCode)}{(Approved ? "  •  APPROVED" : "")}";
         }
 
         private static string FormatCode(string code) => code.Length == 6 ? $"{code[..3]}  {code[3..]}" : code;
@@ -2377,6 +2772,54 @@ static class MediaKeys
     public static void EndAltTab() { lock (AltGate) ReleaseAlt(); }
     private static void ArmAltTimeout() { altTimeout?.Cancel(); var token = (altTimeout = new CancellationTokenSource()).Token; _ = Task.Delay(TimeSpan.FromSeconds(10), token).ContinueWith(_ => { if (!token.IsCancellationRequested) lock (AltGate) ReleaseAlt(); }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default); }
     private static void ReleaseAlt() { altTimeout?.Cancel(); altTimeout = null; if (altHeld) { keybd_event(0x12, 0, 2, UIntPtr.Zero); altHeld = false; } }
+}
+
+static class PointerInput
+{
+    private const uint InputMouse = 0;
+    private const uint MouseEventMove = 0x0001;
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint SendInput(uint inputCount, Input[] inputs, int inputSize);
+
+    public static bool HasExpectedNativeLayout() =>
+        Marshal.SizeOf<Input>() == (IntPtr.Size == 8 ? 40 : 28);
+
+    public static bool MoveRelative(int dx, int dy)
+    {
+        var input = new Input
+        {
+            Type = InputMouse,
+            Data = new InputUnion
+            {
+                Mouse = new MouseInput { Dx = dx, Dy = dy, Flags = MouseEventMove }
+            }
+        };
+        return SendInput(1, [input], Marshal.SizeOf<Input>()) == 1;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Input
+    {
+        public uint Type;
+        public InputUnion Data;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct InputUnion
+    {
+        [FieldOffset(0)] public MouseInput Mouse;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MouseInput
+    {
+        public int Dx;
+        public int Dy;
+        public uint MouseData;
+        public uint Flags;
+        public uint Time;
+        public UIntPtr ExtraInfo;
+    }
 }
 
 static class TimelineClock
@@ -2622,9 +3065,9 @@ sealed class GameWindowTracker
 
 static class LanDiscovery
 {
-    public static async Task Run(int discoveryPort, int httpPort, LanAccessPolicy lanAccess, CancellationToken stopping)
+    public static async Task Run(int discoveryPort, int httpPort, LanAccessPolicy lanAccess, Func<bool> pairingOpen, CancellationToken stopping)
     {
-        var beacon = Announce(discoveryPort, httpPort, lanAccess, stopping);
+        var beacon = Announce(discoveryPort, httpPort, lanAccess, pairingOpen, stopping);
         try
         {
             using var udp = new UdpClient(discoveryPort);
@@ -2645,17 +3088,20 @@ static class LanDiscovery
         try { await beacon; } catch (OperationCanceledException) { } catch { }
     }
 
-    private static async Task Announce(int discoveryPort, int httpPort, LanAccessPolicy lanAccess, CancellationToken stopping)
+    private static async Task Announce(int discoveryPort, int httpPort, LanAccessPolicy lanAccess, Func<bool> pairingOpen, CancellationToken stopping)
     {
         using var udp = new UdpClient { EnableBroadcast = true };
         var message = Encoding.UTF8.GetBytes($"MEDIADECK:{httpPort}");
-        var addresses = new[] { lanAccess.BroadcastAddress, IPAddress.Broadcast }.Where(address => address is not null).Distinct().Cast<IPAddress>().ToArray();
+        var addresses = lanAccess.BroadcastAddresses.Append(IPAddress.Broadcast).Distinct().ToArray();
         while (!stopping.IsCancellationRequested)
         {
-            foreach (var address in addresses)
+            if (pairingOpen())
             {
-                try { await udp.SendAsync(message, new IPEndPoint(address, discoveryPort), stopping); }
-                catch (SocketException) { }
+                foreach (var address in addresses)
+                {
+                    try { await udp.SendAsync(message, new IPEndPoint(address, discoveryPort), stopping); }
+                    catch (SocketException) { }
+                }
             }
             await Task.Delay(TimeSpan.FromSeconds(1), stopping);
         }

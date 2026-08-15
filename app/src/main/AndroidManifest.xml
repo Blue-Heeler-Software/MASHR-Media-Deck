@@ -4,6 +4,8 @@
     <application
         android:usesCleartextTraffic="true"
         android:allowBackup="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@drawable/ic_launcher"
         android:label="MASHR Media Deck"
         android:supportsRtl="true"

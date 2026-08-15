@@ -2,6 +2,39 @@
 
 All notable MASHR Media Deck changes are recorded here.
 
+## 1.9.16 — 2026-07-30
+
+### Fixed
+
+- Replaced the single-address `PairedPhone` gate with an explicit allowlist of up to sixteen exact private phone IPs. Each address is route-validated independently, Windows Firewall remains restricted to only those remotes, and the companion binds only to the required private PC interface addresses.
+- Kept routed private-LAN support for phones on different subnets without falling back to the broader `SameSubnet` exposure.
+- Replaced superseded pairing retries from the same device and source address so the PC dashboard cannot remain selected on an expired MATCH code after the phone rotates its ephemeral request.
+- Reworked the desktop dashboard into a state-driven four-step flow that names the next action, distinguishes firewall-allowed IPs from paired controllers, explains MATCH verification, disables destructive reset when nothing is paired, and shows encrypted-key delivery after approval.
+- Made RSA-PSS grant verification portable across Android Conscrypt, standard Java, and OEM/Bouncy Castle provider aliases without changing the signed pairing protocol.
+
+## 1.9.15 — 2026-07-28
+
+### Added
+
+- Added the off-by-default **Pad Controls Pointer** shared setting. A one-finger drag beginning on unused deck space now sends coalesced, bounded relative pointer movement over the existing signed connection without generating clicks or taking over buttons, sliders, artwork, replay, microphone mute, or multitouch controls.
+
+### Fixed
+
+- Restored strict `PairedPhone` reconnects when a phone and PC use different routed private subnets. The companion now follows the selected Windows route while keeping both the firewall and application allowlist pinned to that phone's exact IP; broadcast discovery remains direct-subnet-only.
+
+## 1.9.14 — 2026-07-28
+
+### Security
+
+- Replaced the cleartext fallback-key exchange with a single PC-approved nearby flow that shows the same transcript-derived six-digit **MATCH** code on the phone and PC.
+- Added a persistent DPAPI-protected PC identity and RSA-PSS-signed pairing grants, preventing an active LAN interceptor from substituting its key when the user compares the code.
+- Added nonce-bound HMAC authentication for every protected response, while continuing to reject replayed requests and now rejecting authenticated request bodies.
+- Limited nearby pairing to explicit two-minute windows, reduced its request rate, capped each source at two pending requests, and stopped unsolicited discovery beacons outside the window.
+- Wrapped Android controller credentials with Android Keystore, excluded them from backup and device transfer, and migrated existing phone and Windows credentials in place.
+- Restricted new firewall rules to trusted Private profiles, retired wildcard rule cleanup, pinned the Gradle distribution and GitHub Actions, and added core security CI plus Dependabot configuration.
+- Invalidated older `Profile Any` LAN configuration markers so upgrades start loopback-only until the owner explicitly reconfigures on a trusted Private network; existing paired-device keys remain intact.
+- Prevented release APK packaging without an explicit private signing identity. Debug APKs remain available only for local ADB development.
+
 ## 1.9.13 — 2026-07-28
 
 ### Changed

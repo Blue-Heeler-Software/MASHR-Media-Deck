@@ -4,7 +4,7 @@
 
 **Product:** MASHR Media Deck<br>
 **Category:** Local second-screen media remote for PC gamers<br>
-**Current release:** 1.9.11 developer preview<br>
+**Current release:** 1.9.16 developer preview<br>
 **Platforms:** Android 8+ phone; Windows 10/11 PC companion; Linux/macOS contributor scaffolds<br>
 **Developer:** Blue Heeler Software
 

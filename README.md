@@ -36,6 +36,7 @@ The browser helper is not required for any control shown above. It exists for on
 - Hold-to-use Alt+Tab: keep the yellow control held and use **PREV/NEXT** as window-switcher arrows.
 - Move the selected media window to the next monitor without stealing focus.
 - Save a PC screenshot using NVIDIA Overlay's configured shortcut, with a Windows fallback.
+- Optional **Pad Controls Pointer** setting: drag unused deck space to move the PC mouse pointer without changing any button, slider, replay, artwork, or multitouch gesture.
 - Automatic reconnect through a background Windows tray companion.
 - Optional 3×3 related-video grid from a narrowly scoped helper—the only feature that uses it.
 
@@ -88,7 +89,7 @@ Every screen here is a real Pixel 7 capture, not a drawn app mock-up. The lead s
     <td width="50%" valign="top">
       <img src="docs/images/pixel7-local-pairing-v148.png" alt="Local one-time pairing screen with no YouTube login"><br>
       <strong>Pair locally, not with a media account.</strong><br>
-      Open the app and it appears in the PC dashboard. One click pairs that exact phone and IP; the local code remains only as a fallback.
+      Open a two-minute pairing window and the app appears in the PC dashboard. Compare the same six-digit MATCH code on both screens, then one click pairs that exact phone and IP.
     </td>
   </tr>
   <tr>
@@ -117,13 +118,14 @@ MASHR Media Deck is not a general remote-desktop app. It exposes a small allowli
 
 ## Security model
 
-The phone needs no Google login, YouTube account access, Android media permission, or cloud account. An unpaired phone announces a short-lived request on the local network; the PC grants it only when you click **PAIR THIS DEVICE** beside the expected device name and IP. The two-minute, six-digit flow remains as a recovery fallback.
+The phone needs no Google login, YouTube account access, Android media permission, or cloud account. Open a two-minute pairing window, then an unpaired phone announces a short-lived request on the local network. The phone and PC independently derive the same six-digit **MATCH** code from both pairing identities. Click **PAIR THIS DEVICE** only when the codes, device name, and IP agree. The old cleartext fallback-code exchange has been retired.
 
-- Every paired controller receives its own random 256-bit key, and every media/control request is authenticated with HMAC-SHA256.
+- Every paired controller receives its own random 256-bit key, and every media/control request and response is authenticated with HMAC-SHA256.
+- Android wraps that key with Android Keystore and excludes it from cloud backup and device-to-device transfer. Windows protects its copy with current-user DPAPI.
 - Requests have a 30-second clock window and one-use nonce.
 - Nearby requests expire after 45 seconds. Approval creates a 30-second, one-use claim bound to that request's random token, ephemeral RSA public key, and source IP. The HMAC key crosses the LAN only as an RSA-OAEP-SHA256 envelope that the phone's private key can open.
 - The PC dashboard shows every paired controller, its last address and recent activity, and can revoke one controller independently.
-- Strict `PairedPhone` LAN mode accepts one phone IP. Multi-device `SameSubnet` mode stays bound to one PC interface and one directly connected subnet; unknown devices may ask to pair, but receive no key or control authority without an explicit dashboard click.
+- Strict `PairedPhone` LAN mode accepts an explicit list of private phone IPs, including phones Windows reaches through routed LANs on different subnets. Multi-device `SameSubnet` mode stays bound to one directly connected subnet; unknown devices may ask to pair, but receive no key or control authority without an explicit dashboard click.
 - Control commands are fixed and allowlisted—there is no shell, arbitrary URL, file upload, process ID, window handle, or coordinate endpoint.
 - YouTube actions target only named accessibility controls in the selected YouTube browser window; the phone cannot send arbitrary clicks or keys.
 - YouTube volume accepts only a 0–100 level; the companion derives the exact verified Volume slider and browser render host instead of accepting caller-provided coordinates or key codes.
@@ -145,7 +147,7 @@ Requirements:
 - Android device with USB debugging for direct deployment
 
 ```powershell
-dotnet build companion/MediaDeck.Companion.csproj -c Debug
+dotnet build companion/MediaDeck.Companion.csproj -c Release
 ./gradlew.bat :app:assembleDebug
 ```
 
@@ -155,29 +157,35 @@ The Android APK is written to:
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
+The debug APK is for local ADB development only. Release packaging deliberately fails unless `MASHR_KEYSTORE_FILE`, `MASHR_KEYSTORE_PASSWORD`, `MASHR_KEY_ALIAS`, and `MASHR_KEY_PASSWORD` point to a private release signing identity; never publish the debug-signed APK. The LAN configuration scripts use the Release companion at `companion/bin/Release/net10.0-windows10.0.19041.0/MediaDeck.Companion.exe`.
+
 ### 2. Restrict LAN access
 
-LAN access is off by default. For one controller, enable the strict paired-phone mode from an Administrator Command Prompt:
+LAN access is off by default. For one or more explicitly addressed controllers, enable strict paired-phone mode from an Administrator Command Prompt:
 
 ```bat
-companion\Configure-LanAccess.cmd PairedPhone PHONE_IP PC_IP
+companion\Configure-LanAccess.cmd PairedPhone PHONE_IP[,PHONE_IP...]
 ```
 
 For WPS-style pairing of several controllers without editing the firewall for each phone, enable `SameSubnet` instead:
 
 ```bat
-companion\Configure-LanAccess.cmd SameSubnet PHONE_IP PC_IP NETWORK_CIDR
+companion\Configure-LanAccess.cmd SameSubnet PHONE_IP
 ```
 
-Both modes keep the existing Windows private/public network profile unchanged, disable stale broad rules, and bind the companion to one chosen PC interface. `PairedPhone` scopes the firewall to one IP. `SameSubnet` lets devices on that directly connected subnet reach the bounded HTTP listener and submit expiring nearby requests, but only a local dashboard click grants one exact request; controls still require a device-specific signed key.
+`PairedPhone` follows Windows' existing IPv4 route to each private phone address and scopes Windows Firewall to only those exact remote IPs, required PC addresses/interfaces, executable, and ports. It may therefore cross routed private subnets without opening the rest of either subnet, even when an interface is classified Public. `SameSubnet` remains broader and is allowed only on a directly connected **Private** Windows network. Both modes disable only known MASHR rules. Unpaired devices can submit at most two requests per address and only during an explicit two-minute window; a local dashboard click after a matching verification code grants one exact request, and controls still require a device-specific signed key.
+
+Security upgrade note: current builds deliberately treat older LAN configuration files as loopback-only because they may have been paired with `Profile Any` firewall rules. Rerun the configuration script to create a route-validated scoped rule. Existing paired-device keys are preserved.
 
 ### 3. Pair the phone
 
-1. Start `companion/bin/Debug/net10.0-windows10.0.19041.0/MediaDeck.Companion.exe`; its dashboard opens visibly.
-2. Open MASHR Media Deck on an unpaired phone. It discovers the PC and appears under **NEARBY CONTROLLERS**.
-3. Confirm the phone name and IP, then click **PAIR THIS DEVICE** once. The phone collects its unique key automatically.
-4. If discovery is unavailable, click **START CODE MODE** and enter the two-minute fallback code under **PC SETTINGS** on the phone.
+1. Start `companion/bin/Release/net10.0-windows10.0.19041.0/MediaDeck.Companion.exe`; its dashboard opens visibly.
+2. Open a two-minute pairing window in the PC dashboard, then open MASHR Media Deck on the unpaired phone.
+3. Confirm the same six-digit **MATCH** code appears on the phone and beside its name and IP on the PC.
+4. Click **PAIR THIS DEVICE** once. The phone verifies the PC signature and collects its unique key automatically.
 5. Use **REVOKE SELECTED** in the dashboard if one controller should lose access.
+
+LAN broadcasts normally do not cross a router. If the phone and PC are on different private subnets, put the PC's routed address into **PC address** in the phone's PC Settings once; signed reconnects then use that saved address without relying on discovery broadcasts.
 
 The stable executable, Android package, scheduled-task name, discovery token, HMAC headers, and pairing-storage path retain their original `MediaDeck` identifiers so existing installs upgrade without losing pairing or restart behavior.
 
@@ -245,7 +253,7 @@ Both scaffolds emit the shared `/api/now` snapshot shape and expose a small allo
 
 ## Project status
 
-MASHR Media Deck `1.9.11` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. Linux and macOS are contributor scaffolds, not released companions. The project has no analytics, cloud backend, advertising, or account system.
+MASHR Media Deck `1.9.16` is an open-source, owner-tested developer preview for Android controllers and a Windows 11 gaming PC. Linux and macOS are contributor scaffolds, not released companions. The project has no analytics, cloud backend, advertising, or account system.
 
 Release history is in [CHANGELOG.md](CHANGELOG.md).
 

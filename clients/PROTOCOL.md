@@ -8,28 +8,23 @@ This document captures the interoperability boundary implemented by the Windows 
 - Optional discovery port: UDP `43822`.
 - Discovery request: the exact UTF-8 payload `MEDIADECK_DISCOVER`.
 - Discovery reply: `MEDIADECK:43821`.
-- A LAN-enabled reference companion also broadcasts that reply once per second on UDP `43822`. This permits discovery while the inbound firewall remains scoped to the PC's exact unicast address; clients should ignore their own broadcast request and unrelated datagrams.
+- During an explicit pairing window, a LAN-enabled reference companion also broadcasts that reply once per second on UDP `43822`. Outside pairing, it only answers directed discovery requests from callers allowed by the configured LAN scope. This permits reconnection while the inbound firewall remains scoped to the PC's exact unicast address; clients should ignore their own broadcast request and unrelated datagrams.
 - Discovery and LAN HTTP are off by default. Loopback is the default bind.
-- A LAN-enabled implementation must reject callers outside its configured paired-phone address or directly connected subnet before authentication is evaluated.
+- A LAN-enabled implementation must reject callers outside its configured exact paired-phone address list or directly connected subnet before authentication is evaluated. Paired-phone addresses may be reached through existing routed private-LAN paths; this does not widen the exact source-IP allowlist. Broadcast discovery is not expected to cross those routes, so clients must retain a manually entered or previously discovered companion address.
 
 This protocol provides authenticated integrity and replay resistance, not encrypted LAN confidentiality. Do not port-forward these ports or expose them to the internet.
 
 ## Pairing and signed requests
 
-`POST /api/pair/nearby` is the default pairing path. The controller sends a persistent random ID in `X-MediaDeck-Device`, a bounded display name in `X-MediaDeck-Device-Name`, a fresh 32–64 character random token in `X-MediaDeck-Pairing-Request`, and an X.509 SubjectPublicKeyInfo-encoded 2048–4096 bit RSA key in `X-MediaDeck-Pairing-Public-Key`. The companion returns `202 waiting` and displays the request's name and source IP. After one local dashboard click, the exact same ID, token, public key, and source IP may call the route again within 30 seconds. The response contains `wrappedKey`, an RSA-OAEP-SHA256 encryption of the 32-byte HMAC key; the raw key is never sent by this route. Claims are atomic and one-use.
+`POST /api/pair/nearby` is the only key-granting pairing path. It is accepted only during an explicit two-minute PC pairing window. The controller sends `X-MediaDeck-Pairing-Protocol: 2`, a persistent random ID in `X-MediaDeck-Device`, a bounded display name in `X-MediaDeck-Device-Name`, a fresh 32–64 character random token in `X-MediaDeck-Pairing-Request`, and an X.509 SubjectPublicKeyInfo-encoded 2048–4096 bit RSA key in `X-MediaDeck-Pairing-Public-Key`. Older pairing clients receive `426 Upgrade Required`. The companion allows at most two pending requests per source address and returns `202 waiting` with its persistent 3072-bit RSA public key and a six-digit `verificationCode`.
 
-`POST /api/pair` is the fallback path. It carries a six-digit code in `X-MediaDeck-Pairing-Code` plus the same ID and name headers. The reference companion accepts the code only during an explicit two-minute window and returns a distinct random 32-byte key encoded as Base64:
+The phone and PC derive that code from SHA-256 over the versioned transcript, persistent device ID, fresh token, exact phone public key, and exact PC public key. The user must compare the code on both screens. After one local dashboard click, the exact same ID, token, public key, and source IP may call the route again within 30 seconds. The response contains:
 
-```json
-{
-  "key": "<base64>",
-  "deviceId": "<persistent-controller-id>",
-  "algorithm": "HMAC-SHA256",
-  "clockWindowSeconds": 30
-}
-```
+- `wrappedKey`: RSA-OAEP-SHA256 encryption of the distinct random 32-byte HMAC key to the phone key.
+- `pcSignature`: RSA-PSS-SHA256 over the request ID, exact wrapped key, and grant expiry.
+- `pcPublicKey`, `verificationCode`, `requestId`, and `grantExpiresUnix` for transcript verification.
 
-The nearby response instead uses `wrappedKey` and reports `RSA-OAEP-SHA256+HMAC-SHA256`; clients decrypt it with the private half of the ephemeral request key before storing the resulting 32-byte HMAC key.
+The phone verifies the code and PC signature before decrypting or storing the key. Claims are atomic and one-use. `POST /api/pair` is retained only as an explicit `410 Gone` compatibility response; the former cleartext fallback exchange cannot release a key.
 
 Every protected request includes:
 
@@ -49,6 +44,8 @@ NONCE
 ```
 
 The reference companion looks up the per-device key, accepts a 30-second clock window, compares signatures in constant time, and rejects reused nonces in that device's namespace. Revoking a roster entry invalidates only that controller. The request body is not part of the current signature, so state-changing inputs must remain bounded query parameters or fixed allowlisted actions until a versioned protocol adds body hashing.
+
+Protected requests with a body or transfer encoding are rejected. Every protected response includes `X-MediaDeck-Response-Nonce` and `X-MediaDeck-Response-Signature`. The signature is HMAC-SHA256 over `RESPONSE`, status code, exact path/query, the request nonce, and the lowercase SHA-256 response-body hash. Clients must compare the echoed nonce and verify that signature before parsing or displaying the response.
 
 Unauthenticated routes are limited to `/`, `/api/health`, `/api/pair`, and `/api/pair/nearby`. The nearby route performs no control action, has its own per-source limiter, and releases a key only after an expiring local approval bound to the request token and source IP. Browser-helper routes are loopback-only and are not part of the cross-platform core.
 
@@ -86,13 +83,14 @@ Providers should use `0` when a timeline is unavailable, `-1` when YouTube playe
 | --- | --- |
 | `GET /api/health` | Service name, pairing state, LAN mode, and bind address |
 | `POST /api/pair/nearby` | Register or claim an expiring, locally approved nearby request |
-| `POST /api/pair` | Exchange the one-time local code for the HMAC key |
+| `POST /api/pair` | Retired compatibility route; always returns `410 Gone` |
 | `GET /api/now` | Selected session snapshot |
 | `GET /api/art` | Current artwork bytes, or `404` |
 | `GET /api/sessions` | Available sessions and selected session |
 | `POST /api/sessions/select?source=...` | Select an exact provider-owned source identifier |
 | `POST /api/seek?positionMs=...` | Seek within provider-advertised bounds |
 | `POST /api/skip?seconds=-120..120` | Skip by a bounded, non-zero signed duration |
+| `POST /api/pointer?dx=-300..300&dy=-300..300` | Move the Windows pointer by a bounded relative delta; at least one axis must be non-zero |
 | `POST /api/control/{command}` | Invoke one fixed allowlisted action |
 | `POST /api/youtube/volume?level=0..100` | Set the selected YouTube player's own volume |
 | `POST /api/youtube/jumpahead` | Ask the verified signed-in YouTube watch player to use its Premium Jump Ahead marker; `409` when unavailable |
@@ -105,8 +103,8 @@ A port must return an explicit non-success result for an unsupported action. It 
 
 - Loopback-only default with no discovery listener.
 - Explicit LAN enablement and a visible status indicator.
-- Paired-phone source-IP allowlisting, with same-subnet mode labeled as broader exposure.
-- Expiring nearby requests, explicit local approval, one-use token/IP-bound claims, fallback-code rotation, and private per-user key storage.
+- Exact paired-phone source-IP allowlisting, with same-subnet mode labeled as broader exposure.
+- Explicit pairing windows, expiring nearby requests, per-address pending caps, matching transcript codes, local approval, one-use token/IP-bound claims, PC-signed grants, and protected per-user key storage.
 - HMAC verification, 30-second freshness, nonce replay rejection, and constant-time comparison.
 - Request/header/body limits and per-source rate limiting; pairing needs a stricter limiter.
 - Exact endpoint and command allowlists.

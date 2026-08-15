@@ -9,7 +9,7 @@
     <AssemblyTitle>MASHR Media Deck Companion</AssemblyTitle>
     <Product>MASHR Media Deck</Product>
     <Description>Secure local second-screen media remote for PC gamers</Description>
-    <Version>1.9.13</Version>
+    <Version>1.9.16</Version>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <DefaultItemExcludes>$(DefaultItemExcludes);.artifacts/**</DefaultItemExcludes>
   </PropertyGroup>

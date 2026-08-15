@@ -16,14 +16,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       : [];
     fetch(`${companion}/api/browser/youtube/state`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-MediaDeck-Browser": "1"
+      },
       body: JSON.stringify({ suggestions })
     }).then(response => sendResponse({ ok: response.ok })).catch(() => sendResponse({ ok: false }));
     return true;
   }
 
   if (message?.type === "mediadeck-poll") {
-    fetch(`${companion}/api/browser/youtube/command`, { cache: "no-store" })
+    fetch(`${companion}/api/browser/youtube/command`, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "X-MediaDeck-Browser": "1" }
+    })
       .then(response => response.ok ? response.json() : null)
       .then(command => sendResponse({ videoId: command?.videoId || null }))
       .catch(() => sendResponse({ videoId: null }));
