@@ -16,6 +16,8 @@ import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyProperties;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -31,6 +33,7 @@ import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.GridLayout;
 import android.widget.ImageView;
@@ -42,10 +45,8 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.HttpURLConnection;
@@ -56,14 +57,26 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.KeyFactory;
+import java.security.KeyStore;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.Signature;
 import java.security.spec.MGF1ParameterSpec;
+import java.security.spec.PSSParameterSpec;
+import java.security.spec.X509EncodedKeySpec;
 import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.OAEPParameterSpec;
 import javax.crypto.spec.PSource;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -72,10 +85,14 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 public final class MainActivity extends Activity {
+    private static final String KEYSTORE_ALIAS="mashr_controller_wrap_v1";
+    private static final long PAIRING_POLL_MS=4000L;
     private static final int BG=Color.rgb(9,10,16), CARD=Color.rgb(24,25,36), INK=Color.rgb(246,244,255), MUTED=Color.rgb(161,161,179), PURPLE=Color.rgb(167,139,250), SCENE_BLUE=Color.rgb(125,211,252), GOLDEN_BROWN=Color.rgb(184,134,11);
     private final Handler ui=new Handler(Looper.getMainLooper());
     private final ExecutorService io=Executors.newSingleThreadExecutor();
+    private final ExecutorService pointerIo=Executors.newSingleThreadExecutor();
     private final ExecutorService thumbnails=Executors.newFixedThreadPool(3);
+    private final Object pointerGate=new Object();
     private final Runnable poll=()->refresh(false);
     private ImageView artwork;
     private TextView source,title,artist,status,elapsed,remaining,scenes,youtubeVolumeValue;
@@ -84,11 +101,15 @@ public final class MainActivity extends Activity {
     private SeekBar youtubeVolume;
     private SwipeReplayView replay;
     private MicMuteView microphoneMute;
-    private String base="",deviceKey="",deviceId="",deviceName="",lastTrack="",pairRequestToken="";
+    private String base="",deviceKey="",deviceId="",deviceName="",lastTrack="",pairRequestToken="",pairPcPublicKey="";
     private KeyPair nearbyPairKey;
-    private boolean running,destroyed,requestPending,userSeeking,youtubeVolumeSeeking,altHeld,youtubeAvailable,youtubeJumpAheadEligible,artworkPending,artworkLoaded,replayAvailable,replayEnabled,microphoneAvailable,microphoneMuted;
+    private final Map<HttpURLConnection,String> authenticatedNonces=Collections.synchronizedMap(new IdentityHashMap<>());
+    private boolean running,destroyed,requestPending,userSeeking,youtubeVolumeSeeking,altHeld,youtubeAvailable,youtubeJumpAheadEligible,artworkPending,artworkLoaded,replayAvailable,replayEnabled,microphoneAvailable,microphoneMuted,pointerRequestInFlight;
+    private volatile boolean padControlsPointer;
     private long durationMs,positionMs,lastArtworkAttemptMs;
-    private int replaySeconds=120,skipSeconds=10;
+    private int replaySeconds=120,skipSeconds=10,activeTouchCount;
+    private int pendingPointerX,pendingPointerY;
+    private float pointerRemainderX,pointerRemainderY;
     private final ArrayList<MediaChapter> chapters=new ArrayList<>();
     private enum DeckIcon { SETTINGS,LIST,PREVIOUS,PLAY,PAUSE,NEXT,ARROW_LEFT,ARROW_RIGHT,SEEK_BACK,SEEK_FORWARD,MUTE,VOLUME_DOWN,VOLUME_UP,SHUFFLE,REPEAT,STOP,CAMERA,MONITOR,THUMB_UP,THUMB_DOWN,SUBSCRIBE,ALT_TAB }
 
@@ -97,7 +118,7 @@ public final class MainActivity extends Activity {
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
         base=getPreferences(0).getString("pc","");
-        deviceKey=getPreferences(0).getString("deviceKey","");
+        deviceKey=loadDeviceKey();
         deviceId=getPreferences(0).getString("deviceId","");
         if(deviceId.isEmpty()){
             deviceId=UUID.randomUUID().toString().replace("-","");
@@ -105,15 +126,17 @@ public final class MainActivity extends Activity {
         }
         deviceName=deviceDisplayName();
         skipSeconds=Math.max(1,Math.min(120,getPreferences(0).getInt("skipSeconds",10)));
+        padControlsPointer=getPreferences(0).getBoolean("padControlsPointer",false);
         build();
     }
 
     @Override protected void onResume(){super.onResume();running=true;refresh(true);}
-    @Override protected void onPause(){running=false;ui.removeCallbacks(poll);if(altHeld)endAltGesture();super.onPause();}
-    @Override protected void onDestroy(){destroyed=true;running=false;ui.removeCallbacksAndMessages(null);io.shutdownNow();thumbnails.shutdownNow();super.onDestroy();}
+    @Override protected void onPause(){running=false;ui.removeCallbacks(poll);clearPendingPointerMoves();if(altHeld)endAltGesture();super.onPause();}
+    @Override protected void onDestroy(){destroyed=true;running=false;ui.removeCallbacksAndMessages(null);io.shutdownNow();pointerIo.shutdownNow();thumbnails.shutdownNow();super.onDestroy();}
+    @Override public boolean dispatchTouchEvent(MotionEvent event){activeTouchCount=event.getActionMasked()==MotionEvent.ACTION_UP||event.getActionMasked()==MotionEvent.ACTION_CANCEL?0:event.getPointerCount();return super.dispatchTouchEvent(event);}
 
     private void build(){
-        LinearLayout root=new LinearLayout(this);
+        PointerSurfaceLayout root=new PointerSurfaceLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
         final int side=dp(6),top=dp(10),bottom=dp(14);
@@ -149,7 +172,7 @@ public final class MainActivity extends Activity {
         status.setPadding(dp(3),dp(2),0,dp(4));
         root.addView(status);
 
-        LinearLayout card=new LinearLayout(this);
+        PointerSurfaceLayout card=new PointerSurfaceLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(8),dp(9),dp(8),dp(9));
         card.setBackground(round(CARD,22));
@@ -350,6 +373,9 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams replayRowLp=new LinearLayout.LayoutParams(-1,dp(62));
         replayRowLp.setMargins(0,dp(5),0,0);
         card.addView(replayRow,replayRowLp);
+        View.OnTouchListener pointerSurface=pointerSurfaceListener();
+        card.setOnTouchListener(pointerSurface);
+        root.setOnTouchListener(pointerSurface);
         root.addView(card);
         setContentView(root);
         root.requestApplyInsets();
@@ -430,9 +456,10 @@ public final class MainActivity extends Activity {
         schedule();
     }
 
-    private void showPairingNeeded(){requestPending=false;status.setText("ASKING PC FOR ONE-CLICK PAIRING...");status.setTextColor(Color.rgb(251,191,36));schedule();}
+    private void showPairingNeeded(){requestPending=false;status.setText("ASKING PC FOR ONE-CLICK PAIRING...");status.setTextColor(Color.rgb(251,191,36));schedulePairing();}
     private void showError(){requestPending=false;status.setText("PC OFFLINE  /  TAP PC SETTINGS");status.setTextColor(Color.rgb(248,113,113));schedule();}
     private void schedule(){if(running){ui.removeCallbacks(poll);ui.postDelayed(poll,2500);}}
+    private void schedulePairing(){if(running){ui.removeCallbacks(poll);ui.postDelayed(poll,PAIRING_POLL_MS);}}
 
     private void loadArtwork(){
         if(destroyed||io.isShutdown())return;
@@ -443,14 +470,17 @@ public final class MainActivity extends Activity {
                 String path="/api/art?track="+System.currentTimeMillis();
                 connection=openConnection(path,"GET",true);
                 int code=connection.getResponseCode();
+                InputStream stream=code>=200&&code<300?connection.getInputStream():connection.getErrorStream();
+                byte[] response=stream==null?new byte[0]:readLimited(stream,8*1024*1024);
+                verifyAuthenticatedResponse(connection,code,response);
                 if(code==401)throw new IOException("HTTP 401");
                 if(code>=200&&code<300){
-                    Bitmap bitmap=BitmapFactory.decodeStream(connection.getInputStream());
+                    Bitmap bitmap=BitmapFactory.decodeByteArray(response,0,response.length);
                     if(bitmap!=null){Log.i("MASHRMediaDeck","Artwork loaded "+bitmap.getWidth()+"x"+bitmap.getHeight());ui.post(()->{artworkPending=false;artworkLoaded=true;if(!isFinishing())artwork.setImageBitmap(bitmap);});return;}
                 }
                 Log.w("MASHRMediaDeck","Artwork request returned HTTP "+code);
             }catch(Exception error){Log.w("MASHRMediaDeck","Artwork load failed",error);}
-            finally{if(connection!=null)connection.disconnect();}
+            finally{if(connection!=null){authenticatedNonces.remove(connection);connection.disconnect();}}
             if(!destroyed)ui.post(()->{artworkPending=false;artworkLoaded=false;});
         });}catch(java.util.concurrent.RejectedExecutionException ignored){artworkPending=false;}
     }
@@ -530,7 +560,8 @@ public final class MainActivity extends Activity {
                 connection=(HttpURLConnection)new URL(address).openConnection();
                 connection.setConnectTimeout(2500);
                 connection.setReadTimeout(2500);
-                Bitmap bitmap=BitmapFactory.decodeStream(connection.getInputStream());
+                byte[] image=readLimited(connection.getInputStream(),4*1024*1024);
+                Bitmap bitmap=BitmapFactory.decodeByteArray(image,0,image.length);
                 if(bitmap!=null&&!destroyed)ui.post(()->{if(!isFinishing()&&!isDestroyed())target.setImageBitmap(bitmap);});
             }catch(Exception ignored){}finally{if(connection!=null)connection.disconnect();}
         });}catch(java.util.concurrent.RejectedExecutionException ignored){}
@@ -669,6 +700,93 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private View.OnTouchListener pointerSurfaceListener(){
+        return new View.OnTouchListener(){
+            float lastX,lastY;
+            float travel;
+            boolean tracking;
+            @Override public boolean onTouch(View view,MotionEvent event){
+                switch(event.getActionMasked()){
+                    case MotionEvent.ACTION_DOWN:
+                        if(!padControlsPointer||event.getPointerCount()!=1||activeTouchCount!=1)return false;
+                        tracking=true;
+                        lastX=event.getX();
+                        lastY=event.getY();
+                        travel=0;
+                        pointerRemainderX=0;
+                        pointerRemainderY=0;
+                        view.getParent().requestDisallowInterceptTouchEvent(true);
+                        return true;
+                    case MotionEvent.ACTION_MOVE:
+                        if(!tracking)return false;
+                        if(event.getPointerCount()!=1||activeTouchCount!=1){tracking=false;clearPendingPointerMoves();view.getParent().requestDisallowInterceptTouchEvent(false);return true;}
+                        float x=event.getX(),y=event.getY();
+                        travel+=(float)Math.hypot(x-lastX,y-lastY);
+                        queuePointerMove(x-lastX,y-lastY);
+                        lastX=x;
+                        lastY=y;
+                        return true;
+                    case MotionEvent.ACTION_POINTER_DOWN:
+                        if(tracking){tracking=false;clearPendingPointerMoves();view.getParent().requestDisallowInterceptTouchEvent(false);return true;}
+                        return false;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        if(!tracking)return false;
+                        tracking=false;
+                        view.getParent().requestDisallowInterceptTouchEvent(false);
+                        if(event.getActionMasked()==MotionEvent.ACTION_UP&&travel<dp(8))view.performClick();
+                        return true;
+                    default:return tracking;
+                }
+            }
+        };
+    }
+
+    private void queuePointerMove(float rawX,float rawY){
+        if(!padControlsPointer||deviceKey.isEmpty()||base.isEmpty())return;
+        float distance=(float)Math.hypot(rawX,rawY);
+        float gain=distance<dp(3)?.9f:distance<dp(10)?1.3f:1.75f;
+        pointerRemainderX+=rawX*gain;
+        pointerRemainderY+=rawY*gain;
+        int dx=(int)pointerRemainderX,dy=(int)pointerRemainderY;
+        pointerRemainderX-=dx;
+        pointerRemainderY-=dy;
+        if(dx==0&&dy==0)return;
+        boolean startWorker=false;
+        synchronized(pointerGate){
+            pendingPointerX=Math.max(-1200,Math.min(1200,pendingPointerX+dx));
+            pendingPointerY=Math.max(-1200,Math.min(1200,pendingPointerY+dy));
+            if(!pointerRequestInFlight){pointerRequestInFlight=true;startWorker=true;}
+        }
+        if(startWorker)startPointerWorker();
+    }
+
+    private void startPointerWorker(){
+        try{pointerIo.execute(()->{
+            try{
+                while(!destroyed&&padControlsPointer&&!Thread.currentThread().isInterrupted()){
+                    int dx,dy;
+                    synchronized(pointerGate){
+                        dx=Math.max(-300,Math.min(300,pendingPointerX));
+                        dy=Math.max(-300,Math.min(300,pendingPointerY));
+                        pendingPointerX-=dx;
+                        pendingPointerY-=dy;
+                        if(dx==0&&dy==0){pointerRequestInFlight=false;return;}
+                    }
+                    try{post("/api/pointer?dx="+dx+"&dy="+dy);}catch(Exception ignored){}
+                    SystemClock.sleep(55);
+                }
+            }catch(RuntimeException ignored){}
+            synchronized(pointerGate){pointerRequestInFlight=false;pendingPointerX=0;pendingPointerY=0;}
+        });}catch(java.util.concurrent.RejectedExecutionException ignored){synchronized(pointerGate){pointerRequestInFlight=false;}}
+    }
+
+    private void clearPendingPointerMoves(){
+        pointerRemainderX=0;
+        pointerRemainderY=0;
+        synchronized(pointerGate){pendingPointerX=0;pendingPointerY=0;}
+    }
+
     private void openPcSettings(){
         LinearLayout form=new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
@@ -684,6 +802,17 @@ public final class MainActivity extends Activity {
         skip.setSelectAllOnFocus(true);
         skip.setTextSize(17);
         form.addView(skip,new LinearLayout.LayoutParams(-1,dp(52)));
+        CheckBox pointer=new CheckBox(this);
+        pointer.setText(R.string.pad_controls_pointer);
+        pointer.setTextColor(INK);
+        pointer.setTextSize(16);
+        pointer.setChecked(padControlsPointer);
+        pointer.setButtonTintList(android.content.res.ColorStateList.valueOf(PURPLE));
+        pointer.setContentDescription("Pad Controls Pointer. Drag unused deck space to move the PC mouse pointer.");
+        form.addView(pointer,new LinearLayout.LayoutParams(-1,dp(48)));
+        TextView pointerHint=text("Drag unused deck space to move the PC pointer. Buttons and gestures stay dedicated to their normal controls.",11,MUTED,false);
+        pointerHint.setPadding(dp(4),0,dp(4),dp(5));
+        form.addView(pointerHint,new LinearLayout.LayoutParams(-1,dp(48)));
         EditText address=new EditText(this);
         address.setSingleLine();
         address.setHint("PC address (auto-detect if blank)");
@@ -691,15 +820,9 @@ public final class MainActivity extends Activity {
         address.setSelectAllOnFocus(true);
         address.setTextSize(17);
         form.addView(address,new LinearLayout.LayoutParams(-1,dp(56)));
-        EditText code=new EditText(this);
-        code.setSingleLine();
-        code.setHint("Fallback 6-digit pairing code (optional)");
-        code.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-        code.setTextSize(17);
-        form.addView(code,new LinearLayout.LayoutParams(-1,dp(56)));
         new AlertDialog.Builder(this)
             .setTitle("PC SETTINGS")
-            .setMessage("Normally, just open this app: the phone appears under Nearby Controllers on the PC. Confirm its name and IP, then click Pair This Device once. Use the code only if nearby discovery is unavailable.")
+            .setMessage("Open a two-minute pairing window on the PC. Confirm the same six-digit MATCH code appears here and beside this phone, then click Pair This Device once.")
             .setView(form)
             .setNegativeButton("CANCEL",null)
             .setPositiveButton("CONNECT",(dialog,which)->{
@@ -708,14 +831,18 @@ public final class MainActivity extends Activity {
                 catch(Exception error){Toast.makeText(this,"Skip must be from 1 to 120 seconds",Toast.LENGTH_SHORT).show();return;}
                 if(requestedSkip<1||requestedSkip>120){Toast.makeText(this,"Skip must be from 1 to 120 seconds",Toast.LENGTH_SHORT).show();return;}
                 skipSeconds=requestedSkip;
-                getPreferences(0).edit().putInt("skipSeconds",skipSeconds).apply();
+                boolean pointerSettingChanged=padControlsPointer!=pointer.isChecked();
+                padControlsPointer=pointer.isChecked();
+                getPreferences(0).edit().putInt("skipSeconds",skipSeconds).putBoolean("padControlsPointer",padControlsPointer).apply();
+                if(!padControlsPointer)clearPendingPointerMoves();
+                if(pointerSettingChanged)Toast.makeText(this,padControlsPointer?"Pad pointer enabled — drag unused deck space":"Pad pointer disabled",Toast.LENGTH_SHORT).show();
                 String value=cleanAddress(address.getText().toString());
-                String pairingCode=code.getText().toString().trim();
                 if(!value.isEmpty()){base=value;getPreferences(0).edit().putString("pc",base).apply();}
-                if(pairingCode.isEmpty()&&!deviceKey.isEmpty()){lastTrack="";refresh(true);return;}
-                if(pairingCode.isEmpty()){pairRequestToken="";Toast.makeText(this,"Look for this phone in the PC dashboard",Toast.LENGTH_SHORT).show();refresh(true);return;}
-                if(pairingCode.length()!=6){Toast.makeText(this,"The fallback code must be 6 digits",Toast.LENGTH_SHORT).show();return;}
-                pairWithPc(pairingCode);
+                if(!deviceKey.isEmpty()){lastTrack="";refresh(true);return;}
+                pairRequestToken="";
+                pairPcPublicKey="";
+                Toast.makeText(this,"Open pairing mode on the PC and compare the MATCH code",Toast.LENGTH_LONG).show();
+                refresh(true);
             }).show();
     }
 
@@ -742,30 +869,58 @@ public final class MainActivity extends Activity {
                     reply=sendNearbyPairRequest();
                 }
                 Log.i("MASHRMediaDeck","Nearby pairing reply from "+base+": "+reply.optString("status","unknown"));
+                String pcPublicKey=reply.optString("pcPublicKey","");
+                String verificationCode=reply.optString("verificationCode","");
+                if(pcPublicKey.isEmpty()||verificationCode.length()!=6)throw new IOException("PC did not provide a pairing identity");
+                String locallyCalculated=pairingVerificationCode(pcPublicKey);
+                if(!MessageDigest.isEqual(locallyCalculated.getBytes(StandardCharsets.US_ASCII),verificationCode.getBytes(StandardCharsets.US_ASCII)))
+                    throw new IOException("Pairing verification mismatch");
+                if(!pairPcPublicKey.isEmpty()&&!MessageDigest.isEqual(pairPcPublicKey.getBytes(StandardCharsets.US_ASCII),pcPublicKey.getBytes(StandardCharsets.US_ASCII)))
+                    throw new IOException("PC pairing identity changed");
+                pairPcPublicKey=pcPublicKey;
                 String encrypted=reply.optString("wrappedKey","");
                 if(!encrypted.isEmpty()){
+                    String requestId=reply.optString("requestId","");
+                    String pcSignature=reply.optString("pcSignature","");
+                    long grantExpiresUnix=reply.optLong("grantExpiresUnix",0);
+                    if(!pairingRequestId().equals(requestId)||!verifyPcGrant(pcPublicKey,requestId,encrypted,grantExpiresUnix,pcSignature))
+                        throw new IOException("PC pairing signature was invalid");
                     Cipher cipher=Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
                     OAEPParameterSpec oaep=new OAEPParameterSpec("SHA-256","MGF1",MGF1ParameterSpec.SHA256,PSource.PSpecified.DEFAULT);
                     cipher.init(Cipher.DECRYPT_MODE,nearbyPairKey.getPrivate(),oaep);
                     byte[] rawKey=cipher.doFinal(Base64.decode(encrypted,Base64.DEFAULT));
-                    if(rawKey.length!=32)throw new IOException("Invalid pairing key");
-                    String received=Base64.encodeToString(rawKey,Base64.NO_WRAP);
+                    String received;
+                    try{
+                        if(rawKey.length!=32)throw new IOException("Invalid pairing key");
+                        received=Base64.encodeToString(rawKey,Base64.NO_WRAP);
+                    }finally{java.util.Arrays.fill(rawKey,(byte)0);}
                     String assignedId=reply.optString("deviceId",deviceId);
                     if(!assignedId.isEmpty())deviceId=assignedId;
                     deviceKey=received;
                     pairRequestToken="";
+                    pairPcPublicKey="";
                     nearbyPairKey=null;
-                    getPreferences(0).edit().putString("deviceKey",deviceKey).putString("deviceId",deviceId).apply();
+                    storeDeviceKey(deviceKey);
+                    getPreferences(0).edit().putString("deviceId",deviceId).putString("pcPublicKey",pcPublicKey).apply();
                     requestPending=false;
                     ui.post(()->{if(destroyed)return;Toast.makeText(this,deviceName+" paired securely",Toast.LENGTH_SHORT).show();lastTrack="";refresh(true);});
                     return;
                 }
                 requestPending=false;
-                ui.post(()->{if(destroyed)return;status.setText("WAITING FOR PC  /  CLICK PAIR THIS DEVICE");status.setTextColor(Color.rgb(74,222,128));schedule();});
+                String match=formatPairingCode(verificationCode);
+                ui.post(()->{if(destroyed)return;status.setText("MATCH "+match+" ON PC  /  THEN CLICK PAIR");status.setTextColor(Color.rgb(74,222,128));schedulePairing();});
             }catch(Exception error){
                 Log.w("MASHRMediaDeck","Nearby pairing request failed for "+base,error);
                 requestPending=false;
-                ui.post(()->{if(destroyed)return;status.setText("PC NOT FOUND  /  RETRYING ONE-CLICK PAIRING");status.setTextColor(Color.rgb(248,113,113));schedule();});
+                String message=error.getMessage()==null?"":error.getMessage();
+                ui.post(()->{
+                    if(destroyed)return;
+                    status.setText(message.contains("HTTP 409")
+                        ?"OPEN PAIRING MODE ON PC"
+                        :message.contains("HTTP 429")?"PAIRING BUSY  /  RETRYING":"PAIRING BLOCKED  /  CHECK PC");
+                    status.setTextColor(Color.rgb(248,113,113));
+                    schedulePairing();
+                });
             }
         });
     }
@@ -774,9 +929,11 @@ public final class MainActivity extends Activity {
         HttpURLConnection connection=openConnection("/api/pair/nearby","POST",false);
         connection.setRequestProperty("X-MediaDeck-Device",deviceId);
         connection.setRequestProperty("X-MediaDeck-Device-Name",deviceName);
+        connection.setRequestProperty("X-MediaDeck-Pairing-Protocol","2");
         connection.setRequestProperty("X-MediaDeck-Pairing-Request",pairRequestToken);
         connection.setRequestProperty("X-MediaDeck-Pairing-Public-Key",Base64.encodeToString(nearbyPairKey.getPublic().getEncoded(),Base64.NO_WRAP));
         connection.setDoOutput(true);
+        connection.setFixedLengthStreamingMode(0);
         try{connection.getOutputStream().close();return new JSONObject(readResponse(connection));}
         finally{connection.disconnect();}
     }
@@ -786,50 +943,16 @@ public final class MainActivity extends Activity {
         getPreferences(0).edit().putString("pc",base).apply();
     }
 
-    private void pairWithPc(String code){
-        requestPending=true;
-        status.setText("PAIRING WITH PC...");
-        status.setTextColor(Color.rgb(251,191,36));
-        io.execute(()->{
-            try{
-                if(base.isEmpty()){
-                    String discovered=discoverPc();
-                    if(discovered==null)throw new IOException("PC not found");
-                    base=discovered;
-                    getPreferences(0).edit().putString("pc",base).apply();
-                }
-                HttpURLConnection connection=openConnection("/api/pair","POST",false);
-                connection.setRequestProperty("X-MediaDeck-Pairing-Code",code);
-                connection.setRequestProperty("X-MediaDeck-Device",deviceId);
-                connection.setRequestProperty("X-MediaDeck-Device-Name",deviceName);
-                connection.setDoOutput(true);
-                connection.getOutputStream().close();
-                String response=readResponse(connection);
-                connection.disconnect();
-                JSONObject paired=new JSONObject(response);
-                String received=paired.optString("key","");
-                if(received.isEmpty())throw new IOException("No key returned");
-                if(Base64.decode(received,Base64.DEFAULT).length!=32)throw new IOException("Invalid pairing key");
-                String assignedId=paired.optString("deviceId",deviceId);
-                if(!assignedId.isEmpty())deviceId=assignedId;
-                deviceKey=received;
-                pairRequestToken="";
-                getPreferences(0).edit().putString("deviceKey",deviceKey).putString("deviceId",deviceId).apply();
-                requestPending=false;
-                ui.post(()->{Toast.makeText(this,deviceName+" paired securely",Toast.LENGTH_SHORT).show();lastTrack="";refresh(true);});
-            }catch(Exception error){requestPending=false;ui.post(()->{status.setText("PAIRING FAILED  /  CHECK THE TRAY CODE");status.setTextColor(Color.rgb(248,113,113));Toast.makeText(this,"Pairing failed: "+safeMessage(error),Toast.LENGTH_LONG).show();});}
-        });
-    }
-
     private String get(String path)throws Exception{
         HttpURLConnection connection=openConnection(path,"GET",true);
-        try{return readResponse(connection);}finally{connection.disconnect();}
+        try{return readResponse(connection);}finally{authenticatedNonces.remove(connection);connection.disconnect();}
     }
 
     private String post(String path)throws Exception{
         HttpURLConnection connection=openConnection(path,"POST",true);
         connection.setDoOutput(true);
-        try{connection.getOutputStream().close();return readResponse(connection);}finally{connection.disconnect();}
+        connection.setFixedLengthStreamingMode(0);
+        try{connection.getOutputStream().close();return readResponse(connection);}finally{authenticatedNonces.remove(connection);connection.disconnect();}
     }
 
     private HttpURLConnection openConnection(String path,String method,boolean authenticated)throws Exception{
@@ -856,23 +979,51 @@ public final class MainActivity extends Activity {
         connection.setRequestProperty("X-MediaDeck-Signature",signature);
         connection.setRequestProperty("X-MediaDeck-Device",deviceId);
         connection.setRequestProperty("X-MediaDeck-Device-Name",deviceName);
+        authenticatedNonces.put(connection,nonce);
     }
 
     private String readResponse(HttpURLConnection connection)throws Exception{
         int responseCode=connection.getResponseCode();
         InputStream stream=responseCode>=200&&responseCode<300?connection.getInputStream():connection.getErrorStream();
-        String body=stream==null?"":readAll(stream);
+        byte[] bodyBytes=stream==null?new byte[0]:readLimited(stream,2*1024*1024);
+        if(responseCode>=200&&responseCode<300||connection.getHeaderField("X-MediaDeck-Response-Signature")!=null)
+            verifyAuthenticatedResponse(connection,responseCode,bodyBytes);
+        else
+            authenticatedNonces.remove(connection);
+        String body=new String(bodyBytes,StandardCharsets.UTF_8);
         if(responseCode<200||responseCode>=300)throw new IOException("HTTP "+responseCode+(body.isEmpty()?"":" - "+body));
         return body;
     }
 
-    private String readAll(InputStream stream)throws IOException{
-        try(BufferedReader reader=new BufferedReader(new InputStreamReader(stream,StandardCharsets.UTF_8))){
-            StringBuilder result=new StringBuilder();
-            String line;
-            while((line=reader.readLine())!=null)result.append(line);
-            return result.toString();
+    private byte[] readLimited(InputStream stream,int maximum)throws IOException{
+        try(InputStream input=stream;java.io.ByteArrayOutputStream output=new java.io.ByteArrayOutputStream()){
+            byte[] buffer=new byte[8192];
+            int read,total=0;
+            while((read=input.read(buffer))!=-1){
+                total+=read;
+                if(total>maximum)throw new IOException("Response exceeded safe size");
+                output.write(buffer,0,read);
+            }
+            return output.toByteArray();
         }
+    }
+
+    private void verifyAuthenticatedResponse(HttpURLConnection connection,int statusCode,byte[] body)throws Exception{
+        String expectedNonce=authenticatedNonces.remove(connection);
+        if(expectedNonce==null)return;
+        String responseNonce=connection.getHeaderField("X-MediaDeck-Response-Nonce");
+        String supplied=connection.getHeaderField("X-MediaDeck-Response-Signature");
+        if(responseNonce==null||supplied==null||!MessageDigest.isEqual(expectedNonce.getBytes(StandardCharsets.US_ASCII),responseNonce.getBytes(StandardCharsets.US_ASCII)))
+            throw new IOException("PC response was not authenticated");
+        String pathAndQuery=connection.getURL().getFile();
+        String bodyHash=hex(MessageDigest.getInstance("SHA-256").digest(body));
+        String canonical="RESPONSE\n"+statusCode+"\n"+pathAndQuery+"\n"+expectedNonce+"\n"+bodyHash;
+        Mac mac=Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(Base64.decode(deviceKey,Base64.DEFAULT),"HmacSHA256"));
+        byte[] expected=mac.doFinal(canonical.getBytes(StandardCharsets.UTF_8));
+        byte[] actual;
+        try{actual=Base64.decode(supplied,Base64.DEFAULT);}catch(Exception error){throw new IOException("PC response signature was malformed");}
+        if(!MessageDigest.isEqual(expected,actual))throw new IOException("PC response signature was invalid");
     }
 
     private String discoverPc(){
@@ -901,7 +1052,110 @@ public final class MainActivity extends Activity {
         }catch(Exception error){Log.w("MASHRMediaDeck","PC discovery failed",error);return null;}
     }
 
-    private void clearPairing(){deviceKey="";pairRequestToken="";nearbyPairKey=null;getPreferences(0).edit().remove("deviceKey").apply();}
+    private String pairingRequestId()throws Exception{
+        String publicKey=Base64.encodeToString(nearbyPairKey.getPublic().getEncoded(),Base64.NO_WRAP);
+        String transcript=deviceId+"\n"+pairRequestToken+"\n"+publicKey;
+        return hex(MessageDigest.getInstance("SHA-256").digest(transcript.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private String pairingVerificationCode(String pcPublicKey)throws Exception{
+        String phonePublicKey=Base64.encodeToString(nearbyPairKey.getPublic().getEncoded(),Base64.NO_WRAP);
+        String transcript="MASHR-PAIR-V2\n"+deviceId+"\n"+pairRequestToken+"\n"+phonePublicKey+"\n"+pcPublicKey;
+        byte[] hash=MessageDigest.getInstance("SHA-256").digest(transcript.getBytes(StandardCharsets.UTF_8));
+        long value=(((long)hash[0]&255)<<24)|(((long)hash[1]&255)<<16)|(((long)hash[2]&255)<<8)|((long)hash[3]&255);
+        return String.format(Locale.US,"%06d",value%1_000_000L);
+    }
+
+    private boolean verifyPcGrant(String pcPublicKey,String requestId,String wrappedKey,long expiresUnix,String encodedSignature)throws Exception{
+        if(expiresUnix<System.currentTimeMillis()/1000L-5||encodedSignature.isEmpty())return false;
+        byte[] publicKey=Base64.decode(pcPublicKey,Base64.DEFAULT);
+        Signature verifier=rsaPssVerifier();
+        verifier.setParameter(new PSSParameterSpec("SHA-256","MGF1",MGF1ParameterSpec.SHA256,32,1));
+        verifier.initVerify(KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(publicKey)));
+        String payload="MASHR-PAIR-GRANT-V2\n"+requestId+"\n"+wrappedKey+"\n"+expiresUnix;
+        verifier.update(payload.getBytes(StandardCharsets.UTF_8));
+        return verifier.verify(Base64.decode(encodedSignature,Base64.DEFAULT));
+    }
+
+    private Signature rsaPssVerifier()throws NoSuchAlgorithmException{
+        // Conscrypt uses the digest-specific name; some OEM providers expose
+        // the standard Java or Bouncy Castle aliases instead.
+        for(String algorithm:new String[]{"SHA256withRSA/PSS","RSASSA-PSS","SHA256withRSAandMGF1"}){
+            try{return Signature.getInstance(algorithm);}
+            catch(NoSuchAlgorithmException ignored){}
+        }
+        throw new NoSuchAlgorithmException("No compatible RSA-PSS verifier is installed");
+    }
+
+    private String loadDeviceKey(){
+        String legacy=getPreferences(0).getString("deviceKey","");
+        if(!legacy.isEmpty()){
+            try{storeDeviceKey(legacy);getPreferences(0).edit().remove("deviceKey").apply();return legacy;}
+            catch(Exception error){Log.e("MASHRMediaDeck","Could not migrate controller key",error);return "";}
+        }
+        String encrypted=getPreferences(0).getString("deviceKeyCipher","");
+        String iv=getPreferences(0).getString("deviceKeyIv","");
+        if(encrypted.isEmpty()||iv.isEmpty())return "";
+        try{
+            Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.DECRYPT_MODE,wrappingKey(),new GCMParameterSpec(128,Base64.decode(iv,Base64.DEFAULT)));
+            byte[] clear=cipher.doFinal(Base64.decode(encrypted,Base64.DEFAULT));
+            try{
+                if(clear.length!=32)throw new IOException("Invalid stored controller key");
+                return Base64.encodeToString(clear,Base64.NO_WRAP);
+            }finally{java.util.Arrays.fill(clear,(byte)0);}
+        }catch(Exception error){
+            Log.e("MASHRMediaDeck","Could not decrypt controller key",error);
+            getPreferences(0).edit().remove("deviceKeyCipher").remove("deviceKeyIv").apply();
+            return "";
+        }
+    }
+
+    private void storeDeviceKey(String encoded)throws Exception{
+        byte[] clear=Base64.decode(encoded,Base64.DEFAULT);
+        try{
+            if(clear.length!=32)throw new IOException("Invalid controller key");
+            Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE,wrappingKey());
+            byte[] encrypted=cipher.doFinal(clear);
+            getPreferences(0).edit()
+                .putString("deviceKeyCipher",Base64.encodeToString(encrypted,Base64.NO_WRAP))
+                .putString("deviceKeyIv",Base64.encodeToString(cipher.getIV(),Base64.NO_WRAP))
+                .remove("deviceKey")
+                .apply();
+        }finally{java.util.Arrays.fill(clear,(byte)0);}
+    }
+
+    private SecretKey wrappingKey()throws Exception{
+        KeyStore keyStore=KeyStore.getInstance("AndroidKeyStore");
+        keyStore.load(null);
+        java.security.Key existing=keyStore.getKey(KEYSTORE_ALIAS,null);
+        if(existing instanceof SecretKey)return (SecretKey)existing;
+        KeyGenerator generator=KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES,"AndroidKeyStore");
+        generator.init(new KeyGenParameterSpec.Builder(KEYSTORE_ALIAS,KeyProperties.PURPOSE_ENCRYPT|KeyProperties.PURPOSE_DECRYPT)
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setRandomizedEncryptionRequired(true)
+            .build());
+        return generator.generateKey();
+    }
+
+    private static String hex(byte[] value){
+        StringBuilder result=new StringBuilder(value.length*2);
+        for(byte item:value)result.append(String.format(Locale.US,"%02x",item&255));
+        return result.toString();
+    }
+
+    private static String formatPairingCode(String value){return value.length()==6?value.substring(0,3)+"  "+value.substring(3):value;}
+
+    private void clearPairing(){
+        deviceKey="";
+        pairRequestToken="";
+        pairPcPublicKey="";
+        nearbyPairKey=null;
+        authenticatedNonces.clear();
+        getPreferences(0).edit().remove("deviceKey").remove("deviceKeyCipher").remove("deviceKeyIv").remove("pcPublicKey").apply();
+    }
     private String deviceDisplayName(){
         String manufacturer=Build.MANUFACTURER==null?"":Build.MANUFACTURER.trim();
         String model=Build.MODEL==null?"Android device":Build.MODEL.trim();
@@ -987,6 +1241,11 @@ public final class MainActivity extends Activity {
         final long positionMs;
         final String title;
         MediaChapter(long positionMs,String title){this.positionMs=positionMs;this.title=title;}
+    }
+
+    private static final class PointerSurfaceLayout extends LinearLayout {
+        PointerSurfaceLayout(android.content.Context context){super(context);}
+        @Override public boolean performClick(){super.performClick();return true;}
     }
 
     private final class ChapterSeekBar extends SeekBar {
