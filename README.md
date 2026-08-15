@@ -15,22 +15,24 @@
 
 MASHR Media Deck is a second-screen Android remote built for PC gamers who do not want to Alt+Tab out of a game just to manage music or video. The Pixel shows the selected Windows media session, artwork, live timeline, chapter markers, and large controls while the game keeps focus.
 
-![MASHR Media Deck showing extension-free YouTube scenes on a Pixel 7](docs/images/pixel7-youtube-scenes-v148.png)
+![MASHR Media Deck 1.9.11 showing split annotation seeking and the rebalanced control rows on a Pixel 7](docs/images/pixel7-annotation-seek-v1911.png)
 
 ## No extension needed
 
-**Everything in the core deck works with the Android app and Windows companion alone.** That includes YouTube artwork and metadata, live progress, chapter markers, the tappable **SCENES** list, Like/Dislike/Subscribe, actual YouTube player volume, transport and system-volume controls, monitor switching, held Alt+Tab, NVIDIA replay, local pairing, and automatic reconnect.
+**Everything in the core deck works with the Android app and Windows companion alone.** That includes YouTube artwork and metadata, live progress, chapter markers, the tappable **SCENES** list, Like/Dislike/Subscribe, actual YouTube player volume, transport and system-volume controls, PC-wide microphone mute, monitor switching, held Alt+Tab, NVIDIA replay, local pairing, and automatic reconnect.
 
 The browser helper is not required for any control shown above. It exists for one separate, optional extra: the 3×3 related-video grid. Ignore or delete `browser-extension` and the main experience is unchanged.
 
 ## What it does
 
-- Large play/pause, previous/next, volume, mute, shuffle, repeat, stop, and ±10-second controls.
+- Large play/pause, previous/next, volume, mute, shuffle, repeat, stop, and configurable Back/Ahead controls.
+- Split Back/Ahead controls: on a signed-in YouTube watch page, the blue forward edge becomes **JUMP** and asks YouTube Premium to use its embedded-segment seek marker; otherwise blue **SCENE** edges use creator annotations. The dark body retains the default skip from **PC SETTINGS**.
 - Live artwork, title, artist, elapsed time, remaining time, and continuously updating progress.
 - Tappable YouTube creator chapters as progress markers and a **SCENES** list—no extension required.
 - Extension-free YouTube **LIKE**, **DISLIKE**, and **SUB** controls through the selected browser window's Windows accessibility surface.
 - A compact **YT VOL** slider that reads and changes the selected YouTube player's own 0–100 volume without changing Windows master volume.
 - Guarded NVIDIA Instant Replay slider that shows whether the buffer is off, arms it explicitly, and labels the armed action **RECORD LAST 2:00 OF GAME** (using the detected buffer length).
+- Compact system microphone mute beside replay: black with a red slash while live, inverted red/black while muted, and always driven by the real state of Windows' active capture endpoints.
 - Hold-to-use Alt+Tab: keep the yellow control held and use **PREV/NEXT** as window-switcher arrows.
 - Move the selected media window to the next monitor without stealing focus.
 - Save a PC screenshot using NVIDIA Overlay's configured shortcut, with a Windows fallback.
@@ -41,7 +43,7 @@ See the [screenshot gallery](docs/SCREENSHOTS.md) and [press kit](docs/PRESS-KIT
 
 ## See it in action
 
-Every screen below is a cache-busted, real Pixel 7 capture from MASHR Media Deck 1.4.8. No drawn app mock-ups are used.
+Every screen here is a real Pixel 7 capture, not a drawn app mock-up. The lead scene-navigation capture is from 1.9.11; supporting interaction captures are retained from 1.4.8.
 
 [Watch the rebuilt 30-second VLC demo clip](docs/media/mashr-media-deck-demo-v148.mp4), whose artwork is composed from the same real Pixel capture.
 
@@ -55,9 +57,9 @@ Every screen below is a cache-busted, real Pixel 7 capture from MASHR Media Deck
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/pixel7-youtube-scenes-v148.png" alt="YouTube artwork, progress, and creator chapter markers on MASHR Media Deck"><br>
-      <strong>YouTube, already understood.</strong><br>
-      Artwork, title, creator, live time, and creator chapters appear without a browser add-on.
+      <img src="docs/images/pixel7-annotation-seek-v1911.png" alt="Split blue scene jumps and rebalanced media controls on MASHR Media Deck 1.9.11"><br>
+      <strong>Annotations are one blue tap away.</strong><br>
+      Blue Scene edges jump to adjacent creator annotations; the dark Back/Ahead bodies use the default skip from PC Settings.
     </td>
     <td width="50%" valign="top">
       <img src="docs/images/pixel7-scene-list-v148.png" alt="Tappable YouTube scene list on MASHR Media Deck"><br>
@@ -86,7 +88,7 @@ Every screen below is a cache-busted, real Pixel 7 capture from MASHR Media Deck
     <td width="50%" valign="top">
       <img src="docs/images/pixel7-local-pairing-v148.png" alt="Local one-time pairing screen with no YouTube login"><br>
       <strong>Pair locally, not with a media account.</strong><br>
-      The one-time code belongs to the PC companion—there is no YouTube or cloud login.
+      Open the app and it appears in the PC dashboard. One click pairs that exact phone and IP; the local code remains only as a fallback.
     </td>
   </tr>
   <tr>
@@ -105,21 +107,23 @@ MASHR Media Deck is not a general remote-desktop app. It exposes a small allowli
 | Moment | Phone action |
 | --- | --- |
 | A track is too loud | Tap **VOL −** or **MUTE** |
-| A video drifts into filler | Tap **+10 SEC** or a chapter marker |
+| A video drifts into filler | Tap the blue **SCENE** edge or the dark **AHEAD** control |
 | A video earns a reaction | Tap **LIKE**, **DISLIKE**, or **SUB** |
 | YouTube itself is too loud | Drag the tiny **YT VOL** slider |
 | The media window is on the wrong display | Tap **MOVE SCREEN** |
 | Something worth clipping just happened | Swipe **RECORD LAST 2:00 OF GAME** |
+| Voice chat needs instant silence | Tap the crossed **MIC** beside the replay swipe |
 | A different PC window is needed | Hold **ALT + TAB**, then tap **PREV/NEXT** |
 
 ## Security model
 
-The phone needs no Google login, YouTube account access, Android media permission, or cloud account. It pairs once with the PC companion using a six-digit tray code.
+The phone needs no Google login, YouTube account access, Android media permission, or cloud account. An unpaired phone announces a short-lived request on the local network; the PC grants it only when you click **PAIR THIS DEVICE** beside the expected device name and IP. The two-minute, six-digit flow remains as a recovery fallback.
 
-- Every media/control request is authenticated with HMAC-SHA256.
+- Every paired controller receives its own random 256-bit key, and every media/control request is authenticated with HMAC-SHA256.
 - Requests have a 30-second clock window and one-use nonce.
-- Successful pairing closes the code; resetting pairing rotates the 256-bit key.
-- Recommended LAN mode binds to one PC interface and accepts only the paired phone IP.
+- Nearby requests expire after 45 seconds. Approval creates a 30-second, one-use claim bound to that request's random token, ephemeral RSA public key, and source IP. The HMAC key crosses the LAN only as an RSA-OAEP-SHA256 envelope that the phone's private key can open.
+- The PC dashboard shows every paired controller, its last address and recent activity, and can revoke one controller independently.
+- Strict `PairedPhone` LAN mode accepts one phone IP. Multi-device `SameSubnet` mode stays bound to one PC interface and one directly connected subnet; unknown devices may ask to pair, but receive no key or control authority without an explicit dashboard click.
 - Control commands are fixed and allowlisted—there is no shell, arbitrary URL, file upload, process ID, window handle, or coordinate endpoint.
 - YouTube actions target only named accessibility controls in the selected YouTube browser window; the phone cannot send arbitrary clicks or keys.
 - YouTube volume accepts only a 0–100 level; the companion derives the exact verified Volume slider and browser render host instead of accepting caller-provided coordinates or key codes.
@@ -153,20 +157,27 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ### 2. Restrict LAN access
 
-LAN access is off by default. From an Administrator Command Prompt, enable the recommended paired-phone mode with the Pixel and PC addresses:
+LAN access is off by default. For one controller, enable the strict paired-phone mode from an Administrator Command Prompt:
 
 ```bat
 companion\Configure-LanAccess.cmd PairedPhone PHONE_IP PC_IP
 ```
 
-This keeps the existing Windows private/public network profile unchanged, disables stale broad rules, binds the companion to the chosen PC interface, and scopes the firewall to the given phone IP. `SameSubnet` is available as a convenience fallback, but every device on that subnet can then reach the authenticated HTTP listener.
+For WPS-style pairing of several controllers without editing the firewall for each phone, enable `SameSubnet` instead:
+
+```bat
+companion\Configure-LanAccess.cmd SameSubnet PHONE_IP PC_IP NETWORK_CIDR
+```
+
+Both modes keep the existing Windows private/public network profile unchanged, disable stale broad rules, and bind the companion to one chosen PC interface. `PairedPhone` scopes the firewall to one IP. `SameSubnet` lets devices on that directly connected subnet reach the bounded HTTP listener and submit expiring nearby requests, but only a local dashboard click grants one exact request; controls still require a device-specific signed key.
 
 ### 3. Pair the phone
 
-1. Start `companion/bin/Debug/net10.0-windows10.0.19041.0/MediaDeck.Companion.exe`.
-2. Right-click or double-click the **MASHR Media Deck** shield in the notification area.
-3. On the phone, tap **PC SETTINGS**, enter the six-digit code, and tap **PAIR**.
-4. Leave the PC address blank to use local discovery, or enter it directly.
+1. Start `companion/bin/Debug/net10.0-windows10.0.19041.0/MediaDeck.Companion.exe`; its dashboard opens visibly.
+2. Open MASHR Media Deck on an unpaired phone. It discovers the PC and appears under **NEARBY CONTROLLERS**.
+3. Confirm the phone name and IP, then click **PAIR THIS DEVICE** once. The phone collects its unique key automatically.
+4. If discovery is unavailable, click **START CODE MODE** and enter the two-minute fallback code under **PC SETTINGS** on the phone.
+5. Use **REVOKE SELECTED** in the dashboard if one controller should lose access.
 
 The stable executable, Android package, scheduled-task name, discovery token, HMAC headers, and pairing-storage path retain their original `MediaDeck` identifiers so existing installs upgrade without losing pairing or restart behavior.
 
@@ -174,7 +185,7 @@ The stable executable, Android package, scheduled-task name, discovery token, HM
 
 **No extension is used for this.**
 
-For Brave, Chrome, and Edge, the companion reads the address bar of the unambiguous selected media window through Windows UI Automation. When it is an exact YouTube watch URL, creator-published description timestamps become progress markers. Tap **SCENES** between elapsed and remaining time to jump to a chapter. The same extension-free accessibility surface activates only the visible, named Like, Dislike, Subscribe, or Volume control; Subscribe never doubles as an unsubscribe action. **YT VOL** changes the webpage player's own value while leaving Windows master volume and the physical cursor alone.
+For Brave, Chrome, and Edge, the companion reads the address bar of the unambiguous selected media window through Windows UI Automation. When it is an exact YouTube watch URL, creator-published description timestamps become progress markers. Tap **SCENES** between elapsed and remaining time to open the full chapter list. On that verified watch page, the blue forward edge becomes **JUMP** and invokes YouTube Premium's own frequently-skipped embedded-segment marker through the signed-in player; MASHR does not confuse it with YouTube's ordinary served-ad skip button or invent a sponsor timestamp from the public page. If YouTube exposes no marker for that account/video, the phone applies the configured normal skip. The same extension-free accessibility surface activates only visible, named Like, Dislike, Subscribe, Jump Ahead, or Volume controls.
 
 ## Optional extra: related-video grid
 
@@ -204,6 +215,8 @@ MASHR Media Deck reads NVIDIA Overlay's local `ShareSettings.json` for:
 
 When replay is off, the slider is orange and says **SWIPE TO ARM GAME REPLAY**. Once NVIDIA reports the buffer enabled, it turns green and becomes **RECORD LAST 2:00 OF GAME**, with the duration taken from NVIDIA's configured rolling buffer. The remote does not expose a disarm action, so stale phone state cannot accidentally switch the buffer off.
 
+The companion remembers the last foreground game-sized window. Before saving a replay, it restores that window if a browser, media player, or controller app has taken focus, verifies that the game is foreground again, and only then sends NVIDIA's configured save shortcut. If Windows refuses the focus change or no game has been seen yet, MASHR reports a failure and sends no replay shortcut.
+
 ## Restart reliability
 
 Register the companion as an **At log on** task so it reconnects without a visible terminal:
@@ -232,7 +245,7 @@ Both scaffolds emit the shared `/api/now` snapshot shape and expose a small allo
 
 ## Project status
 
-MASHR Media Deck `1.4.8` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. Linux and macOS are contributor scaffolds, not released companions. The project has no analytics, cloud backend, advertising, or account system.
+MASHR Media Deck `1.9.11` is an open-source, owner-tested developer preview for a Pixel 7 and Windows 11 gaming PC. Linux and macOS are contributor scaffolds, not released companions. The project has no analytics, cloud backend, advertising, or account system.
 
 Release history is in [CHANGELOG.md](CHANGELOG.md).
 
