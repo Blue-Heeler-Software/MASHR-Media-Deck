@@ -1,12 +1,12 @@
 # MASHR Media Deck screenshots
 
-Every image in this gallery is a fresh, cache-busted capture from MASHR Media Deck 1.4.8 running on a real Pixel 7. The social header also embeds the real app capture rather than a drawn UI mock-up. YouTube artwork, live progress, chapter markers, reactions, subscription, the scene picker, playback controls, monitor switching, Alt+Tab, replay, and local pairing all work without a browser extension.
+Every image in this gallery is a real Pixel 7 capture rather than a drawn UI mock-up. The lead control-deck image is freshly captured from 1.9.11; the focused interaction examples remain cache-busted 1.4.8 captures. YouTube artwork, live progress, chapter markers, reactions, subscription, the scene picker, playback controls, monitor switching, Alt+Tab, replay, and local pairing all work without a browser extension.
 
 ## Extension-free YouTube deck
 
-![YouTube artwork, progress, and creator chapter markers](images/pixel7-youtube-scenes-v148.png)
+![MASHR Media Deck 1.9.11 with split annotation seeking and rebalanced control rows](images/pixel7-annotation-seek-v1911.png)
 
-The companion identifies the selected YouTube watch page and turns creator timestamps into cyan progress markers. No browser extension, YouTube login, or cloud service is involved.
+The companion identifies the selected YouTube watch page and turns creator timestamps into cyan progress markers. Blue **SCENE** edges jump to the previous or next annotation while the dark **BACK/AHEAD** bodies use the configurable default skip. The golden-brown **MOVE SCREEN** control remains visually separate from scene navigation. No browser extension, YouTube login, or cloud service is involved.
 
 ## YouTube actions and compact Alt+Tab
 
@@ -54,7 +54,7 @@ Pairing is between the phone and PC companion. The app does not ask for a YouTub
 
 ![MASHR Media Deck gamer controls](images/pixel7-replay-control-v148.png)
 
-Blue **MOVE SCREEN** moves the media window between displays, yellow controls Alt+Tab, and green **RECORD LAST 2:00 OF GAME** makes the armed Instant Replay result unmistakable.
+Golden-brown **MOVE SCREEN** moves the media window between displays, yellow controls Alt+Tab, and green **RECORD LAST 2:00 OF GAME** makes the armed Instant Replay result unmistakable.
 
 ## Social card
 
